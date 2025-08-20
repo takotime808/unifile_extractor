@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2025 takotime808 -->
 # Unifile Extractor
 
+[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://takotime808.github.io/unifile_extractor/)
 ![Coverage](docs/sources/_static/images/coverage.svg)
 
 ![](docs/sources/_static/logos/unifile-favicon.png)
