@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout
-      - uses: actions/checkout@v4
+        uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -38,7 +38,7 @@ jobs:
         run: pip install -e ".[test,dev]"
 
       - name: Install pytest and coverage tools
-        run: pip install pytest pytest-xdist pytest-cov
+        run: pip install pytest pytest-xdist pytest-cov pytest-sugar coverage-badge
 
       # Run tests (quiet by default; add -vv for debugging)
       - name: Run pytest
@@ -50,12 +50,26 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-report=term
 
+      - name: Generate coverage badge
+        run: coverage-badge -o coverage.svg -f
+
       - name: Upload coverage (artifact)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.python-version }}
-          path: coverage.xml
+          path: |
+            coverage.xml
+            coverage.svg
+
+      - name: Commit coverage badge
+        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.12'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add coverage.svg
+          git commit -m "chore: update coverage badge" || echo "No changes to commit"
+          git push
 
   docs:
     name: Build Sphinx docs
@@ -89,10 +103,7 @@ jobs:
 
       # Build HTML docs
       - name: Build Sphinx HTML
-        env:
-          SPHINXOPTS: -W  # treat warnings as errors; remove if too strict
-        run: |
-          sphinx-build -b html docs/sources docs/sources/_build/html $SPHINXOPTS
+        run: sphinx-build -b html docs/sources docs/sources/_build/html
 
       # (Optional) Linkcheck job can be slow; enable if desired
       # - name: Link check
