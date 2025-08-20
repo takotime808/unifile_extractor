@@ -105,10 +105,11 @@ exclude_patterns = [
     "**.ipynb_checkpoints",
 ]
 
-# source_suffix = [".rst", ".md", ".ipynb"]
-source_suffix = {'.rst': 'restructuredtext', '.md': 'restructuredtext', '.ipynb': 'restructuredtext'}
+# # source_suffix = [".rst", ".md", ".ipynb"]
+# source_suffix = {'.rst': 'restructuredtext', '.md': 'restructuredtext', '.ipynb': 'restructuredtext'}
 
-source_suffix = [".rst", ".md", ".ipynb"]
+# commented out when notebooks failed to build/show after `make html` command
+# source_suffix = [".rst", ".md", ".ipynb"]
 # source_suffix = {'.rst': 'restructuredtext', '.md': ['jupytext.reads', {'fmt': 'md'}], '.ipynb': 'restructuredtext'}
 # Support for notebook formats other than .ipynb
 # nbsphinx_custom_formats = {
@@ -173,10 +174,48 @@ html_theme_options = {
 # so a file named "default.css" will overwrite the builtin "default.css".
 # html_static_path = ['_static'] # already defined above
 html_static_path = ["_static"] # already defined above
-html_static_path = [] # TODO: test these options
+# html_static_path = [] # TODO: test these options and compare
+
+# ---------- Have mermaid diagrams render in sphinx docs ----------
+myst_fence_as_directive = ["mermaid"]
+
+# ----- Remove "Made by Sphinx" -----
+html_show_sphinx = False
+# # ---------- Remove footer ----------
+# html_css_files = ["css/hide-footer.css"]
 
 
+# ---------- MODIFY INCLUDED README IMAGE PATHS ----------
+from pathlib import Path
+import re
 
+def _patch_readme_for_docs():
+    docs_src = Path(__file__).parent
+    project_root = docs_src.parent.parent  # adjust if your layout differs
+    src_readme = project_root / "README.md"
+    dst_readme = docs_src / "_README_docs.md"
+
+    text = src_readme.read_text(encoding="utf-8")
+
+    # Rewrite common relative image/link patterns so they remain valid *from docs/source/*
+    # e.g. ![alt](images/foo.png) -> ../../images/foo.png
+    def _fix(match):
+        url = match.group(2)
+        # ignore absolute, URLs, anchors
+        if re.match(r"^([a-z]+:)?//", url) or url.startswith(("#", "/")):
+            return match.group(0)
+        fixed = f"../../{url.lstrip('./')}"
+        return f"{match.group(1)}{fixed}{match.group(3)}"
+
+    # Markdown images: ![alt](path)
+    text = re.sub(r"(!\[[^\]]*\]\()([^)]+)(\))", _fix, text)
+    # HTML <img src="...">
+    text = re.sub(r'(<img[^>]*\bsrc=")([^"]+)(")', _fix, text)
+
+    dst_readme.write_text(text, encoding="utf-8")
+
+def setup(app):
+    _patch_readme_for_docs()
 
 
 

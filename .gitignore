@@ -14,6 +14,9 @@ docs/source/build
 outputs/
 nbsphinx-template/
 
+# ignore the *.md as it is generated each time by the *.rst version of the same file
+docs/sources/_README_docs.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

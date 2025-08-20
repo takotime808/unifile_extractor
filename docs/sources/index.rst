@@ -7,7 +7,8 @@
    inside that file having `.. include:: ../README.md` 
    just copy file and add to toctree, to preserve formatting.
 
-.. include:: ../../README.md
+.. include:: _README_docs.md
+   :parser: myst_parser.sphinx_
 
 UniFile Extractor
 
