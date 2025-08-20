@@ -4,7 +4,7 @@
 [![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://takotime808.github.io/unifile_extractor/)
 ![Coverage](docs/sources/_static/images/coverage.svg)
 
-![](docs/sources/_static/logos/unifile-favicon.png)
+<img src="docs/sources/_static/logos/unifile-favicon.png" alt="drawing" width="100"/>
 <!-- ![](docs/sources/_static/logos/logo.png) -->
 <!-- ![](docs/sources/_static/logos/unifile-static-logo.png) -->
 
