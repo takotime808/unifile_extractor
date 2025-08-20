@@ -159,9 +159,9 @@ myst_heading_anchors = 3
 # html_theme = "sphinx_rtd_theme" # NOTE: use 'logo_only' option in html_theme_options, when using this theme
 html_theme = "furo"
 # html_theme = "alabaster"
-html_logo = "_static/logos/favicon.ico.png"
+html_logo = "_static/logos/unifile-static-logo.png"
 # html_favicon = "_static/logos/favicon.ico" # TODO: test ico is working, if not then ue png
-html_favicon = "_static/logos/favicon.png" # TODO: test ico is working, if not then ue png
+html_favicon = "_static/logos/logo.png" # TODO: test ico is working, if not then ue png
 html_theme_options = {
     "announcement": "Live and uncut: TakoTime808's <em>UniFile Extractor</em>",
     # "logo_only": True, # only for sphinx_rtd_theme

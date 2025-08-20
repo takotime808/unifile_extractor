@@ -1,6 +1,10 @@
 <!-- Copyright (c) 2025 takotime808 -->
 # Unifile Extractor
 
+![](docs/sources/_static/logos/unifile-favicon.png)
+![](docs/sources/_static/logos/logo.png)
+![](docs/sources/_static/logos/unifile-static-logo.png)
+
 A tiny, pragmatic pipeline that ingests common file types (PDF, DOCX, PPTX, XLSX/CSV, TXT/MD/RTF, HTML, images like PNG/JPG)
 and extracts text into a **standardized table**.
 

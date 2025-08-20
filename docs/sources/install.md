@@ -8,9 +8,6 @@ git clone https://github.com/takotime808/unifile_extractor.git && cd unifile_ext
 # Install package
 pip install -e .
 
-# Install package with dev dependencies
-pip install -e .[dev]
-
-# Install package with test dependencies
-pip install -e .[test]
+# Install package with test and dev dependencies
+pip install -e .[test,dev]
 ```
