@@ -7,16 +7,24 @@
    inside that file having `.. include:: ../README.md` 
    just copy file and add to toctree, to preserve formatting.
 
+UniFile Extractor
+=================
+
 .. include:: _README_docs.md
    :parser: myst_parser.sphinx_
 
-UniFile Extractor
 
 .. toctree::
    :caption: Installation and Usage
 
    install
    usage
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Examples
+
+   example_notebooks/pdf_extract
 
 .. toctree::
    :maxdepth: 3
