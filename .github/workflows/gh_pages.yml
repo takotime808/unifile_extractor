@@ -31,7 +31,7 @@ jobs:
             myst-parser nbsphinx sphinxcontrib-mermaid sphinx-autoapi sphinx-copybutton \
             pytest pytest-cov "genbadge[coverage]"
 
-      # Lightweight coverage run so we can publish a badge without committing to main
+      # Best-effort coverage so we can publish a badge even if docs fail
       - name: Run tests & collect coverage (best effort)
         run: |
           pytest -q --maxfail=1 --disable-warnings \
@@ -47,16 +47,28 @@ jobs:
           fi
 
       - name: Build HTML
-        run: sphinx-build -b html docs/sources docs/sources/_build/html
+        run: |
+          # Don't fail the job if Sphinx errors; we'll still publish the badge
+          sphinx-build -b html docs/sources docs/sources/_build/html || echo "::warning::Sphinx build failed; publishing minimal site"
 
-      - name: Copy coverage badge into docs site
+      - name: Prepare site (ensure index + _assets)
         run: |
           mkdir -p docs/sources/_build/html/_assets
+          # Minimal index if docs build failed and didn't create one
+          if [ ! -f docs/sources/_build/html/index.html ]; then
+            cat > docs/sources/_build/html/index.html <<'HTML'
+<!doctype html><meta charset="utf-8">
+<title>unifile_extractor docs</title>
+<h1>Documentation</h1>
+<p>The docs build failed in this run, but the coverage badge is available below.</p>
+<p><img src="_assets/coverage.svg" alt="coverage badge"></p>
+HTML
+          fi
           cp coverage.svg docs/sources/_build/html/_assets/coverage.svg || true
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/main'
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: docs/sources/_build/html

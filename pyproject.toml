@@ -34,6 +34,18 @@ test = [
     "pytest-sugar",
     # "pytest-xdist",
 ]
+docs = [
+    "docutils==0.20.1",
+    "sphinx",
+    "furo",
+    "sphinx-autodoc-typehints",
+    "myst-parser",
+    "nbsphinx",
+    "sphinxcontrib-mermaid",
+    "sphinx-autoapi",
+    "sphinx-copybutton",
+    "genbadge[coverage]",
+]
 
 [project.scripts]
 unifile = "cli_unifile.cli:main"
