@@ -3,19 +3,28 @@
 
 [![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://takotime808.github.io/unifile_extractor/)
 ![coverage](https://takotime808.github.io/unifile_extractor/_assets/coverage.svg)
-<!-- NOTE: This line is only for when the cicd commits the svg to main -->
-<!-- ![Coverage](docs/sources/_static/images/coverage.svg) -->
 
 <img src="docs/sources/_static/logos/unifile-favicon.png" alt="drawing" width="100"/>
-<!-- ![](docs/sources/_static/logos/logo.png) -->
-<!-- ![](docs/sources/_static/logos/unifile-static-logo.png) -->
 
-A tiny, pragmatic pipeline that ingests common file types (PDF, DOCX, PPTX, XLSX/CSV, TXT/MD/RTF, HTML, images like PNG/JPG)
+A pragmatic pipeline that ingests **documents, spreadsheets, images, archives, email, web pages, and even audio/video**  
 and extracts text into a **standardized table**.
 
+---
+
 ## Features
-- **Single function**: `extract_to_table(path_or_bytes, filename=...) -> pandas.DataFrame`
-- **File types**: PDF (with optional OCR fallback), DOCX, PPTX, XLSX/XLS, CSV/TSV, TXT/MD/RTF/LOG, HTML/HTM, PNG/JPG/TIFF/BMP/WebP/GIF (OCR).
+
+- **Single function API**:  
+  ```python
+  extract_to_table(path_or_bytes, filename=...) -> pandas.DataFrame
+  ```
+- **File types supported (batteries included)**:
+  - **Documents**: PDF (with optional OCR), DOCX, PPTX, TXT/MD/RTF/LOG, HTML/HTM  
+  - **Spreadsheets & Tables**: XLSX, XLSM, XLTX, XLTM, CSV, TSV  
+  - **Images**: PNG, JPG/JPEG, BMP, TIFF, WebP, GIF (OCR via Tesseract)  
+  - **Email & Web**: EML, HTML  
+  - **Archives / Structured Data** *(optional, `pip install .[archive]`)*: ZIP, TAR, GZ, BZ2, XZ, EPUB, JSON, XML  
+  - **Audio & Video** *(optional, `pip install .[media]`)*: WAV, MP3, M4A, FLAC, OGG, WEBM, AAC, MP4, MOV, MKV  
+    - Audio/video extractors run ffmpeg for decoding and (optionally) ASR with [Whisper](https://github.com/openai/whisper) or [faster-whisper].
 - **Standardized schema**:
 
 | column        | meaning |
@@ -23,64 +32,68 @@ and extracts text into a **standardized table**.
 | `source_path` | Absolute/real path to the processed file |
 | `source_name` | Basename of the file |
 | `file_type`   | Extension/normalized type |
-| `unit_type`   | Logical unit: `page`, `slide`, `sheet`, `table`, `image`, `file` |
-| `unit_id`     | Index or name of the unit (`0`, `1`, `Sheet1`, `body`, `meta`) |
+| `unit_type`   | Logical unit: `page`, `slide`, `sheet`, `table`, `image`, `file`, `email`, `segment`, ... |
+| `unit_id`     | Index or name of the unit (`0`, `1`, `Sheet1`, `body`, etc.) |
 | `content`     | Extracted plain text |
 | `char_count`  | Character count of `content` |
 | `metadata`    | Dict with file/unit-specific metadata (JSON-serializable) |
 | `status`      | `ok` or `error` |
 | `error`       | Exception or notes when extraction fails |
 
+---
+
 ## Install
 
 ```bash
-python -m venv .venv && source .venv/bin/activate  # or your platform equivalent
-pip install -r requirements.txt
+python -m venv .venv && source .venv/bin/activate
+pip install -e .[dev,test,docs,archive,media]
 ```
 
-> **OCR note** (images and scanned PDFs):
-> This project uses [pytesseract](https://pypi.org/project/pytesseract/), which requires the Tesseract binary.
-> - macOS: `brew install tesseract`
-> - Ubuntu/Debian: `sudo apt-get install tesseract-ocr`
-> - Windows: Install the Tesseract release from UB Mannheim builds and ensure it's on PATH.
+> **OCR note** (images and scanned PDFs):  
+> This project uses [pytesseract](https://pypi.org/project/pytesseract/), which requires the Tesseract binary.  
+> - macOS: `brew install tesseract`  
+> - Ubuntu/Debian: `sudo apt-get install tesseract-ocr`  
+> - Windows: Install Tesseract from UB Mannheim builds and add to PATH.
+
+---
 
 ## Usage (Python)
 
-### Python
+### Extract from a file
 ```python
 from unifile import extract_to_table
 
 df = extract_to_table("/path/to/file.pdf")
-print(df.head())            # standardized table
+print(df.head())
 df.to_csv("out.csv", index=False)
 ```
 
-### Bytes input (e.g., uploaded file)
+### Extract from bytes
 ```python
 with open("/path/to/image.png", "rb") as f:
     data = f.read()
 
-df = extract_to_table(data, filename="image.png")  # filename helps detect extension
+df = extract_to_table(data, filename="image.png")
 ```
 
-### CLI demo (simple example)
-```bash
-python examples/quickstart.py /path/to/file.pdf --out table.csv
+### Audio/Video
+```python
+df = extract_to_table("meeting.mp3")
+print(df[["unit_id", "content", "metadata"]].head())
 ```
 
 ---
 
-## CLI installation & usage
+## CLI
 
-Install from source (editable dev mode):
-
+Install:
 ```bash
 pip install -e .
 ```
 
 List supported types:
 ```bash
-unifile list-types
+unifile list-types --one-per-line
 ```
 
 Extract from a local file and print to stdout:
@@ -88,43 +101,62 @@ Extract from a local file and print to stdout:
 unifile extract ./docs/sources/_static/data/sample-engineering-drawing.pdf --max-rows 50 --max-colwidth 120
 ```
 
+Extract from a URL and save to JSONL:
+```bash
+unifile extract "https://example.com/sample.pdf" --out result.jsonl
+```
+
 Extract from a URL and save to Parquet:
 ```bash
 unifile extract "https://www.fastradius.com/wp-content/uploads/2022/02/sample-engineering-drawing.pdf" --out drawing.parquet
 ```
 
-Disable PDF OCR fallback and set OCR language:
+Control OCR (disable PDF OCR fallback and set OCR language):
 ```bash
 unifile extract ./scan.pdf --no-ocr --ocr-lang eng
 ```
 
-Output formats supported by `--out`: `.csv`, `.parquet`, `.jsonl`.
+Output formats: `.csv`, `.parquet`, `.jsonl`.
 
 ---
 
 ## Design notes
-- **PDF**: Uses PyMuPDF for native text; if a page yields empty text, tries OCR (configurable).
-- **DOCX**: Reads paragraphs + table cells.
-- **PPTX**: Walks slide shapes and collects `.text`.
-- **XLSX/CSV**: For sheets/tables we serialize each row as tab-delimited lines.
-- **HTML**: Uses BeautifulSoup to extract visible text; preserves block structure with newlines.
+
+- **PDF**: Uses PyMuPDF; if text is empty, falls back to OCR (configurable).
+- **DOCX**: Collects paragraphs & table text.
+- **PPTX**: Extracts from slide shapes with `.text`.
+- **Spreadsheets**: Serializes rows with tab-delimiters.
+- **HTML**: Uses BeautifulSoup; preserves block breaks.
 - **Text files**: Attempts encoding detection via `chardet`.
-
-If you need more types (EML, EPUB, JSON, XML), add another extractor in `unifile/extractors/` and register its extension in `pipeline.py`.
-
-## Minimal example
-
-```python
-from unifile import extract_to_table
-df = extract_to_table("sample.docx")
-df.to_parquet("sample.parquet", index=False)
-```
-
-## Limits & Tips
-- OCR quality depends on image resolution; if a PDF page is image-only, we rasterize at 2x scale before OCR.
-- Very large spreadsheets or PDFs can produce big `content` fields—consider postprocessing or chunking downstream.
-- For HTML, you may wish to remove nav/boilerplate using heuristics like `readability-lxml` (not included).
+- **Archives/EPUB/JSON/XML**: Optional extras add decompression/parsing.
+- **Audio/Video**: Runs ffmpeg to decode; can run Whisper ASR to transcribe into text rows.
 
 ---
 
-MIT-like license (do whatever you want, no warranty).
+## Example
+
+```python
+from unifile import extract_to_table
+df = extract_to_table("lecture.mkv")
+df.to_parquet("lecture.parquet", index=False)
+```
+
+---
+
+## Development & Testing
+
+```bash
+pytest --maxfail=1 --disable-warnings -q
+```
+
+- Unit tests mock heavy OCR/ASR/ffmpeg calls for fast CI.  
+- Integration tests validate full end-to-end pipeline.  
+- Docs are built with Sphinx + Furo theme.
+
+---
+
+## Limits & Tips
+
+- OCR depends on image resolution (PDF rasterized @ 2x scale).
+- Audio/Video transcription requires ffmpeg and Whisper (CPU/GPU performance may vary).
+- Very large spreadsheets/PDFs produce large outputs; consider chunking.

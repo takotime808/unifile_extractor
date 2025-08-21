@@ -1,4 +1,4 @@
-# Using Media (Audio and Video Files)
+# Media (Audio and Video Files)
 
 ## Install media extras
 ```bash
