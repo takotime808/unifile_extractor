@@ -64,7 +64,8 @@ jobs:
 
       # ---- Build Sphinx docs ----
       - name: Build Sphinx HTML
-        run: sphinx-build -b html docs docs/sources/_build/html
+        # run: sphinx-build -b html docs docs/sources/_build/html
+        run: cd docs/sources && make html 
 
       - name: Upload docs artifact (optional)
         if: always()
