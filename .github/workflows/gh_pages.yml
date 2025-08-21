@@ -18,6 +18,7 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # Pandoc for nbsphinx notebooks
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -25,12 +26,61 @@ jobs:
 
       - name: Install Python dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -e .
-          pip install "docutils==0.20.1" sphinx furo sphinx-autodoc-typehints \
-            myst-parser nbsphinx sphinxcontrib-mermaid sphinx-autoapi sphinx-copybutton
+          # Pin docutils for more forgiving parsing of AutoAPI output
+          pip install "docutils==0.20.1" \
+            sphinx furo sphinx-autodoc-typehints myst-parser \
+            nbsphinx sphinxcontrib-mermaid sphinx-autoapi sphinx-copybutton \
+            pytest pytest-cov
+
+      # Optional but useful: compute coverage here so we can publish a Shields endpoint
+      - name: Run tests & collect coverage (best effort)
+        run: |
+          # If tests fail, still continue and try to publish docs
+          pytest -q --maxfail=1 --disable-warnings \
+            --cov=src --cov-report=term --cov-report=xml:coverage.xml || true
 
       - name: Build HTML
         run: sphinx-build -b html docs/sources docs/sources/_build/html
+
+      # Create a Shields endpoint JSON at a stable path in the docs site
+      - name: Generate Shields coverage endpoint JSON
+        run: |
+          mkdir -p docs/sources/_build/html/_assets
+          if [ -f coverage.xml ]; then
+            python - <<'PY' > docs/sources/_build/html/_assets/coverage.json
+import xml.etree.ElementTree as ET, json
+root = ET.parse("coverage.xml").getroot()
+rate = root.attrib.get("line-rate")
+if rate is None:
+    # fallback: compute from lines
+    lines_valid = 0
+    lines_covered = 0
+    for ln in root.findall(".//lines/line"):
+        lines_valid += 1
+        hits = int(ln.attrib.get("hits","0"))
+        if hits > 0:
+            lines_covered += 1
+    pct = round(100 * lines_covered / max(1, lines_valid))
+else:
+    pct = round(float(rate) * 100)
+
+def color(p):
+    if p >= 90: return "brightgreen"
+    if p >= 80: return "green"
+    if p >= 70: return "yellowgreen"
+    if p >= 60: return "yellow"
+    if p >= 50: return "orange"
+    return "red"
+
+data = {"schemaVersion": 1, "label": "coverage", "message": f"{pct}%", "color": color(pct)}
+print(json.dumps(data))
+PY
+          else
+            echo '{"schemaVersion":1,"label":"coverage","message":"N/A","color":"lightgrey"}' \
+              > docs/sources/_build/html/_assets/coverage.json
+          fi
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
@@ -38,6 +88,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: docs/sources/_build/html
-          force_orphan: true         # keeps gh-pages history clean
-          # optional:
-          # cname: your.custom.domain
+          force_orphan: true
