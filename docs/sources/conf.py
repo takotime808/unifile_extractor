@@ -205,6 +205,8 @@ def _patch_readme_for_docs():
         if re.match(r"^([a-z]+:)?//", url) or url.startswith(("#", "/")):
             return match.group(0)
         fixed = f"../../{url.lstrip('./')}"
+        fixed = fixed.replace("../../docs/sources/", "")
+        fixed = fixed.replace("docs/sources/", "")
         return f"{match.group(1)}{fixed}{match.group(3)}"
 
     # Markdown images: ![alt](path)

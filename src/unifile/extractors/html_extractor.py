@@ -18,7 +18,7 @@ class HtmlExtractor(BaseExtractor):
     HTML --> plain-text extractor.
 
     This extractor parses an HTML/HTM file and emits a single standardized
-    row containing the document’s visible text. `<br>` elements are converted
+    row containing the document's visible text. `<br>` elements are converted
     to newlines prior to text extraction.
 
     It inherits :meth:`BaseExtractor.extract` for path validation and

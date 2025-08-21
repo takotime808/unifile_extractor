@@ -20,7 +20,7 @@ class ExcelExtractor(BaseExtractor):
     XLSX/XLS --> plain-text (tab-delimited) extractor.
 
     This extractor loads a workbook and emits **one row per worksheet**. Each
-    worksheet’s cells are serialized as **tab-delimited** lines (one line per
+    worksheet's cells are serialized as **tab-delimited** lines (one line per
     sheet row), which is convenient for downstream text processing.
 
     Inherits :meth:`BaseExtractor.extract` for path validation and

@@ -1,8 +1,6 @@
 # Copyright (c) 2025 takotime808
 
 import pytest
-# import sys
-# from pathlib import Path
 
 cli = pytest.importorskip("unifile.cli")
 from .utils_build_samples import build_txt, build_pdf

@@ -25,6 +25,8 @@ UniFile Extractor
    :caption: Examples
 
    example_notebooks/pdf_extract
+   tutorials/cli_usage
+   tutorials/media
 
 .. toctree::
    :maxdepth: 3
