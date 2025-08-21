@@ -2,78 +2,80 @@ name: Deploy Documentation & Coverage Badge
 
 on:
   push:
-    branches: [main, master]
+    branches: [ main, master ]
+  workflow_dispatch:
 
 permissions:
-  contents: write  # needed by peaceiris to push to gh-pages
+  contents: write  # needed to push gh-pages
 
 concurrency:
-  group: gh-pages-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-docs:
+  build-docs-and-deploy:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
-      - name: Install system dependencies (pandoc for nbsphinx)
+      - name: Install system packages (tesseract, ffmpeg)
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc
+          sudo apt-get install -y --no-install-recommends \
+            tesseract-ocr \
+            ffmpeg
+          sudo apt-get clean
 
-      - name: Install Python dependencies
+      - name: Upgrade pip
+        run: python -m pip install -U pip
+
+      - name: Install project (docs + test extras)
+        run: pip install -e ".[docs,test]"
+
+      - name: Install genbadge
+        run: pip install "genbadge[coverage]"
+
+      # ---- Run tests and produce coverage.xml ----
+      - name: Run pytest with coverage
+        env:
+          UNIFILE_DISABLE_PDF_OCR: ""
+          UNIFILE_OCR_LANG: eng
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
-          pip install "docutils==0.20.1" \
-            sphinx furo sphinx-autodoc-typehints myst-parser nbsphinx \
-            sphinxcontrib-mermaid sphinx-autoapi sphinx-copybutton \
-            pytest pytest-cov "genbadge[coverage]"
+          pytest -q \
+            --maxfail=1 \
+            --disable-warnings \
+            --cov=unifile \
+            --cov-report=xml:coverage.xml
 
-      # Best-effort test run just to produce coverage.xml, so we can publish a badge even if docs fail
-      - name: Run tests & collect coverage (best effort)
-        run: |
-          pytest -q --maxfail=1 --disable-warnings \
-            --cov=unifile --cov-report=term --cov-report=xml:coverage.xml || true
+      # ---- Prepare docs output and badge ----
+      - name: Prepare docs build directory
+        run: mkdir -p docs/_build/html/_assets
 
-      - name: Generate coverage.svg
-        run: |
-          if [ -f coverage.xml ]; then
-            genbadge coverage -i coverage.xml -o coverage.svg
-          else
-            # Fallback simple badge if coverage.xml wasn't produced
-            printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="20"><rect width="110" height="20" fill="#555"/><rect x="60" width="50" height="20" fill="#9f9f9f"/><g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11"><text x="30" y="14">coverage</text><text x="85" y="14">N/A</text></g></svg>' > coverage.svg
-          fi
+      - name: Generate coverage.svg badge
+        run: genbadge coverage -i coverage.xml -o docs/_build/html/_assets/coverage.svg
 
-      - name: Build HTML (non-fatal)
-        run: |
-          sphinx-build -b html docs/sources docs/sources/_build/html || true
+      # ---- Build Sphinx docs ----
+      - name: Build Sphinx HTML
+        run: sphinx-build -b html docs docs/_build/html
 
-      - name: Prepare site and copy badge (always)
+      - name: Upload docs artifact (optional)
         if: always()
-        run: |
-          mkdir -p docs/sources/_build/html/_assets
-          # Minimal index if Sphinx didn't produce one
-          if [ ! -f docs/sources/_build/html/index.html ]; then
-            printf '%s\n' '<!doctype html><meta charset="utf-8"><title>unifile_extractor docs</title><h1>Documentation</h1><p>If the Sphinx build failed this run, a minimal page is shown. The coverage badge is below.</p><p><img src="_assets/coverage.svg" alt="coverage badge"></p>' > docs/sources/_build/html/index.html
-          fi
-          cp coverage.svg docs/sources/_build/html/_assets/coverage.svg || true
-          # Quick sanity check so we fail fast if badge is missing
-          test -f docs/sources/_build/html/_assets/coverage.svg
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: docs/_build/html
 
-      - name: Deploy to GitHub Pages (both main & master)
-        if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      # ---- Deploy to GitHub Pages ----
+      - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: docs/sources/_build/html
-          force_orphan: true   # keeps gh-pages history clean
-          # cname: your.custom.domain  # optional
+          publish_dir: docs/_build/html
