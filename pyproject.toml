@@ -20,6 +20,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0.0",
     "chardet>=5.2.0",
+    "ebooklib", # for epub_extractor.py
 ]
 
 [project.optional-dependencies]
