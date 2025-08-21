@@ -66,16 +66,19 @@ jobs:
             coverage.xml
             coverage.svg
 
-      - name: Commit coverage badge
-        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.12'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          mv coverage.svg docs/sources/_static/images/coverage.svg
-          git add docs/sources/_static/images/coverage.svg
-          git commit -m "chore: update coverage badge" || echo "No changes to commit"
-          git push
+      # # NOTE: Remove committing badge to main branch.
+      # - name: Commit coverage badge
+      #   if: github.ref == 'refs/heads/main' && matrix.python-version == '3.12'
+      #   run: |
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     mv coverage.svg docs/sources/_static/images/coverage.svg
+      #     git add docs/sources/_static/images/coverage.svg
+      #     git commit -m "chore: update coverage badge" || echo "No changes to commit"
+      #     git push
 
+
+  # NOTE: Generation and deployment of sphinx docs have been moved to gh_pages.yml
   # docs:
   #   name: Build Sphinx docs
   #   runs-on: ubuntu-latest

@@ -15,6 +15,7 @@ two key utilities:
 
 Design notes
 -----------
+
 * The registry maps normalized lower-case extensions (without dots) to callables
   that return **new extractor instances**. This ensures extractors are stateless
   across calls.

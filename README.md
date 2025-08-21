@@ -2,7 +2,9 @@
 # Unifile Extractor
 
 [![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://takotime808.github.io/unifile_extractor/)
-![Coverage](docs/sources/_static/images/coverage.svg)
+![coverage](https://takotime808.github.io/unifile_extractor/_assets/coverage.svg)
+<!-- NOTE: This line is only for when the cicd commits the svg to main -->
+<!-- ![Coverage](docs/sources/_static/images/coverage.svg) -->
 
 <img src="docs/sources/_static/logos/unifile-favicon.png" alt="drawing" width="100"/>
 <!-- ![](docs/sources/_static/logos/logo.png) -->

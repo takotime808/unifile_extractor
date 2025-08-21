@@ -147,17 +147,29 @@ class BaseExtractor:
 
     Subclasses override `_extract(path: Path) -> List[Row]` to do the real work.
     This wrapper:
-      * validates the input path (exists + is file),
-      * converts unexpected exceptions into a single error `Row`, so callers
-        receive a consistent list of `Row` objects instead of an exception.
+
+    * validates the input path (exists + is file),
+    * converts unexpected exceptions into a single error `Row`, so callers
+      receive a consistent list of `Row` objects instead of an exception.
 
     Example
     -------
-    class MyTxtExtractor(BaseExtractor):
-        supported_extensions = ["txt"]
-        def _extract(self, path: Path) -> list[Row]:
-            text = path.read_text(errors="replace")
-            return [make_row(path, "txt", "file", "body", text, {"encoding": "unknown"})]
+    .. code-block:: python
+
+        class MyTxtExtractor(BaseExtractor):
+            supported_extensions = ["txt"]
+            def _extract(self, path: Path) -> list[Row]:
+                text = path.read_text(errors="replace")
+                return [
+                    make_row(
+                        path,
+                        "txt",
+                        "file",
+                        "body",
+                        text,
+                        {"encoding": "unknown"},
+                    )
+                ]
     """
 
     supported_extensions: Sequence[str] = ()
