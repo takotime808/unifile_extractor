@@ -1,0 +1,87 @@
+src.unifile.extractors.pdf_extractor
+====================================
+
+.. py:module:: src.unifile.extractors.pdf_extractor
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   src.unifile.extractors.pdf_extractor.PdfExtractor
+
+
+Module Contents
+---------------
+
+.. py:class:: PdfExtractor(ocr_if_empty: bool = True, ocr_lang: str = 'eng')
+
+   Bases: :py:obj:`unifile.extractors.base.BaseExtractor`
+
+
+   PDF --> text extractor with optional OCR fallback.
+
+   For each page:
+     1. Attempt native text extraction via PyMuPDF (`page.get_text("text")`).
+     2. If the result is empty **and** OCR is enabled, rasterize the page and
+        perform OCR with Tesseract (`pytesseract`).
+
+   A final, optional **document-level metadata** row is appended with
+   `unit_type="file"` and `unit_id="meta"`.
+
+   Environment overrides
+   ---------------------
+   - `UNIFILE_DISABLE_PDF_OCR` (truthy -> disables OCR fallback)
+   - `UNIFILE_OCR_LANG` (e.g., "eng", "deu", "spa")
+
+   Output Rows
+   -----------
+   * Per page (index `i`):
+       - file_type: "pdf"
+       - unit_type: "page"
+       - unit_id:   str(i)
+       - content:   extracted text (native or OCR)
+       - metadata:  {"page": i, "rect": [x0,y0,x1,y1], "ocr": bool}
+   * Document metadata (optional):
+       - file_type: "pdf"
+       - unit_type: "file"
+       - unit_id:   "meta"
+       - metadata:  {"metadata": <dict from PyMuPDF>}
+
+   .. admonition:: Notes
+
+      - On OCR errors for a specific page, an **error row** is emitted for that
+        page with `status="error"` and a `"warning": "OCR failed"` metadata tag;
+        processing continues for subsequent pages.
+      - Path validation and exception wrapping for unexpected top-level failures
+        are provided by :class:`BaseExtractor.extract`.
+
+
+   .. py:attribute:: supported_extensions
+      :value: ['pdf']
+
+
+
+   .. py:attribute:: ocr_if_empty
+      :value: True
+
+
+
+   .. py:attribute:: ocr_lang
+      :value: 'eng'
+
+
+
+   .. py:method:: _extract(path: pathlib.Path) -> List[unifile.extractors.base.Row]
+
+      Extract text from a PDF file, with optional OCR fallback.
+
+      :param path: Path to a `.pdf` file. Existence checks are handled by
+                   :class:`BaseExtractor.extract`.
+
+      :returns: Page rows (and a metadata row if available).
+      :rtype: list[Row]
+
+
+

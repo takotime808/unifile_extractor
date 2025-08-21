@@ -1,0 +1,43 @@
+src.cli_unifile.cli
+===================
+
+.. py:module:: src.cli_unifile.cli
+
+
+Attributes
+----------
+
+.. autoapisummary::
+
+   src.cli_unifile.cli.requests
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   src.cli_unifile.cli._download
+   src.cli_unifile.cli.build_parser
+   src.cli_unifile.cli._save_df
+   src.cli_unifile.cli._print_df
+   src.cli_unifile.cli.main
+
+
+Module Contents
+---------------
+
+.. py:data:: requests
+   :value: None
+
+
+.. py:function:: _download(url: str, out: pathlib.Path) -> pathlib.Path
+
+.. py:function:: build_parser() -> argparse.ArgumentParser
+
+.. py:function:: _save_df(df: pandas.DataFrame, out: pathlib.Path) -> None
+
+.. py:function:: _print_df(df: pandas.DataFrame, max_rows: Optional[int], max_colwidth: int) -> None
+
+.. py:function:: main(argv: Optional[list[str]] = None) -> int
+

@@ -1,0 +1,58 @@
+src.unifile.extractors.html_extractor
+=====================================
+
+.. py:module:: src.unifile.extractors.html_extractor
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   src.unifile.extractors.html_extractor.HtmlExtractor
+
+
+Module Contents
+---------------
+
+.. py:class:: HtmlExtractor
+
+   Bases: :py:obj:`unifile.extractors.base.BaseExtractor`
+
+
+   HTML --> plain-text extractor.
+
+   This extractor parses an HTML/HTM file and emits a single standardized
+   row containing the document's visible text. `<br>` elements are converted
+   to newlines prior to text extraction.
+
+   It inherits :meth:`BaseExtractor.extract` for path validation and
+   exception-to-error-row wrapping. The parsing logic is implemented in
+   :meth:`_extract`.
+
+   Output Row
+   ----------
+   - file_type: "html" or "htm" (normalized from the file suffix)
+   - unit_type: "file"
+   - unit_id:   "body"
+   - content:   Visible text with newlines preserved
+   - metadata:  {"title": <str | None>}
+
+
+   .. py:attribute:: supported_extensions
+      :value: ['html', 'htm']
+
+
+
+   .. py:method:: _extract(path: pathlib.Path) -> List[unifile.extractors.base.Row]
+
+      Parse an HTML file into a single standardized text row.
+
+      :param path: Path to an `.html`/`.htm` file. Existence checks are handled by
+                   :class:`BaseExtractor.extract`.
+
+      :returns: A single row with visible text content and optional page title.
+      :rtype: list[Row]
+
+
+

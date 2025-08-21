@@ -1,0 +1,70 @@
+src.unifile.extractors.docx_extractor
+=====================================
+
+.. py:module:: src.unifile.extractors.docx_extractor
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   src.unifile.extractors.docx_extractor.DocxExtractor
+
+
+Module Contents
+---------------
+
+.. py:class:: DocxExtractor
+
+   Bases: :py:obj:`unifile.extractors.base.BaseExtractor`
+
+
+   DOCX paragraph + table extractor.
+
+   This extractor reads:
+     - **Paragraph text**: concatenated into a single "file/body" unit.
+     - **Tables**: each table is serialized as tab-delimited rows and emitted
+       as a separate "table/<index>" unit.
+
+   It inherits a robust :meth:`extract` implementation from :class:`BaseExtractor`
+   that performs file validation and wraps unexpected exceptions in a single
+   error :class:`Row`. The real work is implemented in :meth:`_extract`.
+
+   Output Rows
+   -----------
+   * Paragraphs (if any):
+       - file_type: "docx"
+       - unit_type: "file"
+       - unit_id:   "body"
+       - metadata:  {"sections": "paragraphs"}
+   * Each table:
+       - file_type: "docx"
+       - unit_type: "table"
+       - unit_id:   "<table_index>"
+       - content:   Tab-delimited lines (one line per table row)
+       - metadata:  {"table_index": <int>}
+
+   .. admonition:: Notes
+
+      - Empty paragraphs are skipped.
+      - Empty tables (i.e., after trimming) are not emitted.
+
+
+   .. py:attribute:: supported_extensions
+      :value: ['docx']
+
+
+
+   .. py:method:: _extract(path: pathlib.Path) -> List[unifile.extractors.base.Row]
+
+      Parse a DOCX file into standardized rows.
+
+      :param path: Path to a `.docx` file. Validation (existence/is-file) is already
+                   handled by :class:`BaseExtractor.extract`.
+
+      :returns: Standardized rows for paragraphs and tables (see class docstring).
+      :rtype: list[Row]
+
+
+

@@ -1,0 +1,33 @@
+src.unifile.extractors.archive_extractor
+========================================
+
+.. py:module:: src.unifile.extractors.archive_extractor
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   src.unifile.extractors.archive_extractor.ArchiveExtractor
+
+
+Module Contents
+---------------
+
+.. py:class:: ArchiveExtractor
+
+   Bases: :py:obj:`unifile.extractors.base.BaseExtractor`
+
+
+   ZIP/TAR --> recursively extract members and run the pipeline on each.
+
+
+   .. py:attribute:: supported_extensions
+      :value: ['zip', 'tar', 'gz', 'tgz', 'bz2', 'tbz', 'xz']
+
+
+
+   .. py:method:: _extract(path: pathlib.Path) -> List[unifile.extractors.base.Row]
+
+

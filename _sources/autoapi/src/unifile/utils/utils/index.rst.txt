@@ -1,0 +1,107 @@
+src.unifile.utils.utils
+=======================
+
+.. py:module:: src.unifile.utils.utils
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   src.unifile.utils.utils.write_temp_file
+   src.unifile.utils.utils.json_dumps_safe
+   src.unifile.utils.utils.norm_ext
+
+
+Module Contents
+---------------
+
+.. py:function:: write_temp_file(data: Union[bytes, io.BufferedReader, io.BytesIO], suffix: str) -> pathlib.Path
+
+   Persist in-memory bytes or a readable binary stream to a temporary file.
+
+   The file is created via :func:`tempfile.mkstemp` using a `unifile_` prefix
+   and the provided suffix (a leading dot is added automatically if missing).
+
+   :param data: Either raw bytes/bytearray or a binary, file-like object that implements
+                ``read(size: int) -> bytes``. The stream is read in chunks until EOF.
+   :param suffix: Desired file suffix/extension. May be provided with or without the
+                  leading dot (e.g., ``"txt"`` or ``".txt"``).
+
+   :returns: Path to the newly created temporary file containing the provided data.
+   :rtype: pathlib.Path
+
+   .. admonition:: Notes
+
+      - The caller is responsible for deleting the returned file when no longer
+        needed.
+      - Streams are read in 8 KiB chunks, which works for any binary-like object
+        with a ``read()`` method (e.g., :class:`io.BytesIO`, open file handles,
+        HTTP response streams, etc.).
+
+   .. rubric:: Examples
+
+   >>> from io import BytesIO
+   >>> p = write_temp_file(b"hello", "txt")
+   >>> p.suffix
+   '.txt'
+   >>> p.read_text()
+   'hello'
+   >>> p.unlink()  # cleanup
+
+   >>> s = BytesIO(b"chunked")
+   >>> p = write_temp_file(s, ".bin")
+   >>> p.read_bytes()
+   b'chunked'
+   >>> p.unlink()
+
+
+.. py:function:: json_dumps_safe(obj) -> str
+
+   Serialize an object to JSON, falling back to the object's string
+   representation when default JSON encoding fails.
+
+   :param obj: Any Python object.
+
+   :returns: A JSON string. If ``obj`` is JSON-serializable, the result is the usual
+             JSON encoding. Otherwise, returns a JSON-encoded string of ``str(obj)``.
+   :rtype: str
+
+   .. rubric:: Examples
+
+   >>> json_dumps_safe({"a": 1})
+   '{"a": 1}'
+
+   >>> json_dumps_safe(object())[:1] == '"'
+   True
+
+   >>> l = []; l.append(l)  # circular structure
+   >>> isinstance(json.loads(json_dumps_safe(l)), str)
+   True
+
+
+.. py:function:: norm_ext(p: Union[str, pathlib.Path]) -> str
+
+   Normalize a file's extension to lowercase without the leading dot.
+
+   :param p: A path-like string or :class:`pathlib.Path`.
+
+   :returns: The lowercase extension **without** the leading dot. If the input
+             has no extension, returns an empty string. For dotfiles (e.g. ``.env``),
+             this returns the text after the dot (``"env"``), consistent with
+             :attr:`pathlib.Path.suffix`.
+   :rtype: str
+
+   .. rubric:: Examples
+
+   >>> norm_ext("file.TXT")
+   'txt'
+   >>> norm_ext("archive.tar.gz")
+   'gz'
+   >>> norm_ext("noext")
+   ''
+   >>> norm_ext(".env")
+   'env'
+
+

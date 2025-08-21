@@ -1,0 +1,29 @@
+src.unifile.extractors
+======================
+
+.. py:module:: src.unifile.extractors
+
+
+Submodules
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   /autoapi/src/unifile/extractors/archive_extractor/index
+   /autoapi/src/unifile/extractors/audio_extractor/index
+   /autoapi/src/unifile/extractors/base/index
+   /autoapi/src/unifile/extractors/docx_extractor/index
+   /autoapi/src/unifile/extractors/eml_extractor/index
+   /autoapi/src/unifile/extractors/epub_extractor/index
+   /autoapi/src/unifile/extractors/html_extractor/index
+   /autoapi/src/unifile/extractors/img_extractor/index
+   /autoapi/src/unifile/extractors/json_extractor/index
+   /autoapi/src/unifile/extractors/pdf_extractor/index
+   /autoapi/src/unifile/extractors/pptx_extractor/index
+   /autoapi/src/unifile/extractors/txt_extractor/index
+   /autoapi/src/unifile/extractors/video_extractor/index
+   /autoapi/src/unifile/extractors/xlsx_extractor/index
+   /autoapi/src/unifile/extractors/xml_extractor/index
+
+

@@ -1,0 +1,261 @@
+src.unifile.extractors.base
+===========================
+
+.. py:module:: src.unifile.extractors.base
+
+.. autoapi-nested-parse::
+
+   Base extractor definitions.
+
+   This module defines the common `Row` dataclass used to represent extracted
+   units of text, the `Extractor` protocol that extractor implementations must
+   conform to, and a `make_row` convenience function.
+
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   src.unifile.extractors.base.Row
+   src.unifile.extractors.base.Extractor
+   src.unifile.extractors.base.BaseExtractor
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   src.unifile.extractors.base.make_row
+
+
+Module Contents
+---------------
+
+.. py:class:: Row
+
+   A standardized representation of a single extracted unit of text.
+
+   .. attribute:: source_path
+
+      Absolute or relative path to the source file.
+
+      :type: str
+
+   .. attribute:: source_name
+
+      Basename of the source file.
+
+      :type: str
+
+   .. attribute:: file_type
+
+      Normalized file extension (e.g., "pdf", "docx").
+
+      :type: str
+
+   .. attribute:: unit_type
+
+      Logical unit type, e.g. "page", "slide", "sheet", "file", "image", "table".
+
+      :type: str
+
+   .. attribute:: unit_id
+
+      Identifier for the unit, such as "0", "1", "Sheet1".
+
+      :type: str
+
+   .. attribute:: content
+
+      Extracted plain text content.
+
+      :type: str
+
+   .. attribute:: char_count
+
+      Length of the `content` string in characters.
+
+      :type: int
+
+   .. attribute:: metadata
+
+      Arbitrary metadata about the unit (e.g., page index, dimensions).
+
+      :type: dict
+
+   .. attribute:: status
+
+      Extraction status: "ok" or "error".
+
+      :type: str
+
+   .. attribute:: error
+
+      Optional error message if status == "error".
+
+      :type: str | None
+
+
+   .. py:attribute:: source_path
+      :type:  str
+
+
+   .. py:attribute:: source_name
+      :type:  str
+
+
+   .. py:attribute:: file_type
+      :type:  str
+
+
+   .. py:attribute:: unit_type
+      :type:  str
+
+
+   .. py:attribute:: unit_id
+      :type:  str
+
+
+   .. py:attribute:: content
+      :type:  str
+
+
+   .. py:attribute:: char_count
+      :type:  int
+
+
+   .. py:attribute:: metadata
+      :type:  dict
+
+
+   .. py:attribute:: status
+      :type:  str
+
+
+   .. py:attribute:: error
+      :type:  Optional[str]
+      :value: None
+
+
+
+   .. py:method:: to_dict() -> dict
+
+      Convert the Row to a JSON-serializable dictionary.
+
+      .. admonition:: Notes
+
+         - If `metadata` contains non-serializable objects, it is replaced
+           with a fallback dict: `{"_repr": str(metadata)}`.
+
+
+
+.. py:function:: make_row(path: pathlib.Path, file_type: str, unit_type: str, unit_id: str, content: str, metadata: dict, status: str = 'ok', error: Optional[str] = None) -> Row
+
+   Convenience function to create a :class:`Row`.
+
+   :param path: Path to the source file.
+   :type path: Path
+   :param file_type: Normalized extension (e.g., "pdf").
+   :type file_type: str
+   :param unit_type: Logical unit type ("page", "slide", "sheet", etc.).
+   :type unit_type: str
+   :param unit_id: Identifier for the unit (stringified).
+   :type unit_id: str
+   :param content: Extracted text content.
+   :type content: str
+   :param metadata: Unit-level metadata.
+   :type metadata: dict
+   :param status: Extraction status.
+   :type status: str, default="ok"
+   :param error: Error message if status == "error".
+   :type error: str | None, default=None
+
+   :returns: A populated Row object with `char_count` automatically computed.
+   :rtype: Row
+
+
+.. py:class:: Extractor
+
+   Bases: :py:obj:`Protocol`
+
+
+   Protocol (interface) that all extractors must implement.
+
+   .. attribute:: supported_extensions
+
+      List of file extensions (lowercase, no dot) handled by this extractor.
+
+      :type: Sequence[str]
+
+   .. method:: extract(path: Path) -> List[Row]
+
+      Perform text extraction from the given file and return standardized rows.
+
+
+
+   .. py:attribute:: supported_extensions
+      :type:  Sequence[str]
+
+
+   .. py:method:: extract(path: pathlib.Path) -> List[Row]
+
+
+.. py:class:: BaseExtractor
+
+   Optional base class providing a robust `extract()` implementation.
+
+   Subclasses override `_extract(path: Path) -> List[Row]` to do the real work.
+   This wrapper:
+
+   * validates the input path (exists + is file),
+   * converts unexpected exceptions into a single error `Row`, so callers
+     receive a consistent list of `Row` objects instead of an exception.
+
+   .. rubric:: Example
+
+   .. code-block:: python
+
+       class MyTxtExtractor(BaseExtractor):
+           supported_extensions = ["txt"]
+           def _extract(self, path: Path) -> list[Row]:
+               text = path.read_text(errors="replace")
+               return [
+                   make_row(
+                       path,
+                       "txt",
+                       "file",
+                       "body",
+                       text,
+                       {"encoding": "unknown"},
+                   )
+               ]
+
+
+   .. py:attribute:: supported_extensions
+      :type:  Sequence[str]
+      :value: ()
+
+
+
+   .. py:method:: extract(path: pathlib.Path) -> List[Row]
+
+      Extract text units from `path`.
+
+      :returns: On success: rows with `status="ok"`.
+                On failure: a single `Row` with `status="error"` and an `error` message.
+      :rtype: list[Row]
+
+      .. admonition:: Notes
+
+         Implementations should override `_extract` rather than this method.
+
+
+
+   .. py:method:: _extract(path: pathlib.Path) -> List[Row]
+      :abstractmethod:
+
+
+

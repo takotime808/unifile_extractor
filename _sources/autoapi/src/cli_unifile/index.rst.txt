@@ -1,0 +1,35 @@
+src.cli_unifile
+===============
+
+.. py:module:: src.cli_unifile
+
+
+Submodules
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   /autoapi/src/cli_unifile/cli/index
+
+
+Attributes
+----------
+
+.. autoapisummary::
+
+   src.cli_unifile.version
+   src.cli_unifile.__version__
+
+
+Package Contents
+----------------
+
+.. py:data:: version
+   :value: '0.1.0'
+
+
+.. py:data:: __version__
+   :value: '0.1.0'
+
+
