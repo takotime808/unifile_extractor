@@ -16,7 +16,7 @@ class TextExtractor(BaseExtractor):
     """
     Plain-text–style extractor for TXT/MD/RTF/LOG.
 
-    This extractor reads the file as text (using Python’s default encoding
+    This extractor reads the file as text (using Python's default encoding
     detection fallbacks via ``errors="replace"``) and emits a single
     standardized row.
 
@@ -57,7 +57,7 @@ class TextExtractor(BaseExtractor):
         Returns
         -------
         list[Row]
-            A single row with the file’s text content.
+            A single row with the file's text content.
 
         Error Handling
         --------------

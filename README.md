@@ -42,7 +42,7 @@ pip install -r requirements.txt
 > This project uses [pytesseract](https://pypi.org/project/pytesseract/), which requires the Tesseract binary.
 > - macOS: `brew install tesseract`
 > - Ubuntu/Debian: `sudo apt-get install tesseract-ocr`
-> - Windows: Install the Tesseract release from UB Mannheim builds and ensure it’s on PATH.
+> - Windows: Install the Tesseract release from UB Mannheim builds and ensure it's on PATH.
 
 ## Usage (Python)
 

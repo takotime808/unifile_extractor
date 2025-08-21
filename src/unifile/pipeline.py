@@ -6,7 +6,7 @@ This module wires file extensions to concrete extractor implementations and expo
 two key utilities:
 
 - ``detect_extractor(path)``: resolve the normalized extension and return it only
-  if it’s supported by the registry.
+  if it's supported by the registry.
 - ``extract_to_table(...)``: run the appropriate extractor and return a
   standardized pandas DataFrame. The schema is:
 
@@ -22,11 +22,34 @@ Design notes
 * ``extract_to_table`` accepts either a filesystem path or raw bytes plus a
   filename hint; in the latter case data is persisted to a temporary file so we
   can reuse file-based extractors uniformly.
-"""
 
+CLI-related runtime options
+--------------------------
+The pipeline can accept the same flags the CLI exposes:
+
+- OCR / PDF
+  * ``ocr_lang`` (str): language code for OCR (images and PDF OCR fallback)
+  * ``no_ocr`` (bool): disable OCR fallback for PDFs (vector text only)
+
+- ASR / Media (optional, if media extractors installed)
+  * ``asr_model`` (str): ASR model name (e.g., "small")
+  * ``asr_device`` (str): "cpu" or "cuda"
+  * ``asr_compute_type`` (str): faster-whisper compute type (e.g., "float16", "int8_float16")
+
+These are set via ``extract_to_table(..., ocr_lang=..., no_ocr=..., asr_* = ...)``
+and also exported to environment variables so optional media extractors can pick
+them up consistently:
+
+- UNIFILE_OCR_LANG
+- UNIFILE_DISABLE_PDF_OCR
+- UNIFILE_ASR_MODEL
+- UNIFILE_ASR_DEVICE
+- UNIFILE_ASR_COMPUTE_TYPE
+"""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List, Optional, Union
 import pandas as pd
@@ -40,9 +63,118 @@ from unifile.extractors.img_extractor import ImageExtractor
 from unifile.extractors.txt_extractor import TextExtractor
 from unifile.extractors.html_extractor import HtmlExtractor
 from unifile.extractors.xlsx_extractor import ExcelExtractor, CsvExtractor
+from unifile.extractors.eml_extractor import EmlExtractor
 
-# Registry maps extension -> a callable returning an extractor instance
-REGISTRY = {
+# Optional extractors (installed via extras)
+try:
+    # Install with: pip install .[archive]
+    from unifile.extractors.archive_extractor import ArchiveExtractor
+    from unifile.extractors.epub_extractor import EpubExtractor
+    from unifile.extractors.json_extractor import JsonExtractor
+    from unifile.extractors.xml_extractor import XmlExtractor
+    INCLUDE_FILE_TYPES_COMPRESSED = True
+except Exception:
+    INCLUDE_FILE_TYPES_COMPRESSED = False
+
+try:
+    # Install with: pip install .[media]
+    from unifile.extractors.audio_extractor import AudioExtractor
+    from unifile.extractors.video_extractor import VideoExtractor
+    INCLUDE_FILE_TYPES_MEDIA = True
+except Exception:
+    INCLUDE_FILE_TYPES_MEDIA = False
+
+
+# ------------------------- Runtime configuration layer -------------------------
+
+# Defaults used unless overridden via extract_to_table kwargs
+_RUNTIME = {
+    "ocr_lang": "eng",
+    "disable_pdf_ocr": False,  # True when CLI --no-ocr is passed
+    # Optional ASR settings (audio/video)
+    "asr_model": None,
+    "asr_device": None,
+    "asr_compute_type": None,
+}
+
+def _apply_runtime_env():
+    """
+    Export the current runtime configuration into environment variables so that
+    extractors that read env (e.g., PdfExtractor, Audio/Video ASR backends) see
+    consistent settings.
+    """
+    # OCR
+    os.environ["UNIFILE_OCR_LANG"] = _RUNTIME["ocr_lang"] or "eng"
+    os.environ["UNIFILE_DISABLE_PDF_OCR"] = "1" if _RUNTIME["disable_pdf_ocr"] else ""
+
+    # ASR (optional)
+    if _RUNTIME["asr_model"] is not None:
+        os.environ["UNIFILE_ASR_MODEL"] = str(_RUNTIME["asr_model"])
+    if _RUNTIME["asr_device"] is not None:
+        os.environ["UNIFILE_ASR_DEVICE"] = str(_RUNTIME["asr_device"])
+    if _RUNTIME["asr_compute_type"] is not None:
+        os.environ["UNIFILE_ASR_COMPUTE_TYPE"] = str(_RUNTIME["asr_compute_type"])
+
+
+def set_runtime_options(
+    *,
+    ocr_lang: Optional[str] = None,
+    no_ocr: Optional[bool] = None,
+    asr_model: Optional[str] = None,
+    asr_device: Optional[str] = None,
+    asr_compute_type: Optional[str] = None,
+) -> None:
+    """
+    Update in-process runtime options (mirrors CLI flags) and export to env.
+
+    Parameters
+    ----------
+    ocr_lang : str | None
+        OCR language code (images and PDF OCR fallback).
+    no_ocr : bool | None
+        If True, disable PDF OCR fallback.
+    asr_model : str | None
+        Optional ASR model name (for audio/video extractors).
+    asr_device : str | None
+        Optional ASR device ("cpu" or "cuda").
+    asr_compute_type : str | None
+        Optional faster-whisper compute type, e.g., "float16", "int8_float16".
+    """
+    if ocr_lang is not None:
+        _RUNTIME["ocr_lang"] = ocr_lang
+    if no_ocr is not None:
+        _RUNTIME["disable_pdf_ocr"] = bool(no_ocr)
+
+    if asr_model is not None:
+        _RUNTIME["asr_model"] = asr_model
+    if asr_device is not None:
+        _RUNTIME["asr_device"] = asr_device
+    if asr_compute_type is not None:
+        _RUNTIME["asr_compute_type"] = asr_compute_type
+
+    _apply_runtime_env()
+
+
+# ----------------------------- Registry & factories -----------------------------
+
+# Helper to create an extractor instance honoring runtime options where applicable
+def _make_extractor_for_ext(ext: str):
+    ext = ext.lower()
+    if ext == "pdf":
+        # Respect runtime OCR flags for PDF
+        return PdfExtractor(
+            ocr_if_empty=not _RUNTIME["disable_pdf_ocr"],
+            ocr_lang=_RUNTIME["ocr_lang"] or "eng",
+        )
+    if ext in {"png", "jpg", "jpeg", "bmp", "tif", "tiff", "webp", "gif"}:
+        # Pass OCR language to image OCR extractor
+        return ImageExtractor(ocr_lang=_RUNTIME["ocr_lang"] or "eng")
+
+    # Everything else uses default construction (stateless)
+    return REGISTRY_BASE[ext]()
+
+# Base registry (pure constructors) that we can still reuse
+REGISTRY_BASE = {
     "pdf": lambda: PdfExtractor(),
     "docx": lambda: DocxExtractor(),
     "pptx": lambda: PptxExtractor(),
@@ -71,13 +203,55 @@ REGISTRY = {
     # html
     "html": lambda: HtmlExtractor(),
     "htm": lambda: HtmlExtractor(),
+    # eml
+    "eml":  lambda: EmlExtractor(),
 }
 
+if INCLUDE_FILE_TYPES_COMPRESSED:
+    REGISTRY_BASE.update({
+        # compressed / containers
+        "zip":  lambda: ArchiveExtractor(),
+        "tar":  lambda: ArchiveExtractor(),
+        "gz":   lambda: ArchiveExtractor(),
+        "tgz":  lambda: ArchiveExtractor(),
+        "bz2":  lambda: ArchiveExtractor(),
+        "tbz":  lambda: ArchiveExtractor(),
+        "xz":   lambda: ArchiveExtractor(),
+        # epub
+        "epub": lambda: EpubExtractor(),
+        # json
+        "json": lambda: JsonExtractor(),
+        # xml
+        "xml":  lambda: XmlExtractor(),
+    })
+
+if INCLUDE_FILE_TYPES_MEDIA:
+    REGISTRY_BASE.update({
+        # audio
+        "wav":  lambda: AudioExtractor(),
+        "mp3":  lambda: AudioExtractor(),
+        "m4a":  lambda: AudioExtractor(),
+        "flac": lambda: AudioExtractor(),
+        "ogg":  lambda: AudioExtractor(),
+        "webm": lambda: AudioExtractor(),  # audio-only webm treated as audio here
+        "aac":  lambda: AudioExtractor(),
+        # video
+        "mp4":  lambda: VideoExtractor(),
+        "mov":  lambda: VideoExtractor(),
+        "mkv":  lambda: VideoExtractor(),
+        # "webm" could be video too; choose one mapping per your preference.
+    })
+
+# Public registry reference (keys = supported extensions)
+REGISTRY = REGISTRY_BASE.copy()
 SUPPORTED_EXTENSIONS = sorted(REGISTRY.keys())
+
+
+# --------------------------------- Core API -----------------------------------
 
 def detect_extractor(path: Union[str, Path]) -> Optional[str]:
     """
-    Determine the extractor to use from a path-like object’s extension.
+    Determine the extractor to use from a path-like object's extension.
 
     Parameters
     ----------
@@ -88,16 +262,10 @@ def detect_extractor(path: Union[str, Path]) -> Optional[str]:
     -------
     str | None
         The normalized extension (e.g., ``"pdf"``) when supported; otherwise ``None``.
-
-    Examples
-    --------
-    >>> detect_extractor("file.TXT")
-    'txt'
-    >>> detect_extractor("report.unknown") is None
-    True
     """
     ext = norm_ext(path)
     return ext if ext in REGISTRY else None
+
 
 def _rows_to_df(rows: List[Row]) -> pd.DataFrame:
     """
@@ -118,22 +286,48 @@ def _rows_to_df(rows: List[Row]) -> pd.DataFrame:
         "content", "char_count", "metadata", "status", "error"]``.
     """
     data = [r.to_dict() for r in rows]
-    cols = ["source_path", "source_name", "file_type", "unit_type", "unit_id", "content", "char_count", "metadata", "status", "error"]
+    cols = [
+        "source_path", "source_name", "file_type", "unit_type", "unit_id",
+        "content", "char_count", "metadata", "status", "error"
+    ]
     df = pd.DataFrame(data)
     for c in cols:
         if c not in df.columns:
             df[c] = None
     return df[cols]
 
-def extract_to_table(input_obj: Union[str, Path, bytes], *, filename: Optional[str] = None) -> pd.DataFrame:
-    """Extract text from a supported file and return a standardized pandas DataFrame.
+
+def extract_to_table(
+    input_obj: Union[str, Path, bytes],
+    *,
+    filename: Optional[str] = None,
+    # CLI-aligned runtime options (all optional)
+    ocr_lang: Optional[str] = None,
+    no_ocr: Optional[bool] = None,
+    asr_model: Optional[str] = None,
+    asr_device: Optional[str] = None,
+    asr_compute_type: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Extract text from a supported file and return a standardized pandas DataFrame.
 
     Parameters
     ----------
     input_obj : str | Path | bytes
         Path to a file on disk, or a bytes object representing file contents.
     filename : str | None
-        Required if input_obj is bytes. Used to determine file type by extension.
+        Required if ``input_obj`` is bytes. Used to determine file type by extension.
+
+    ocr_lang : str | None
+        OCR language (images and PDF OCR fallback). Mirrors ``--ocr-lang``.
+    no_ocr : bool | None
+        Disable PDF OCR fallback. Mirrors ``--no-ocr``.
+    asr_model : str | None
+        ASR model name (media extras). Mirrors ``--asr-model``.
+    asr_device : str | None
+        ASR device ("cpu" or "cuda"). Mirrors ``--asr-device``.
+    asr_compute_type : str | None
+        faster-whisper compute type. Mirrors ``--asr-compute-type``.
 
     Returns
     -------
@@ -141,6 +335,15 @@ def extract_to_table(input_obj: Union[str, Path, bytes], *, filename: Optional[s
         Standardized table with columns:
         [source_path, source_name, file_type, unit_type, unit_id, content, char_count, metadata, status, error].
     """
+    # Update runtime config (and environment) from provided options
+    set_runtime_options(
+        ocr_lang=ocr_lang,
+        no_ocr=no_ocr,
+        asr_model=asr_model,
+        asr_device=asr_device,
+        asr_compute_type=asr_compute_type,
+    )
+
     # Resolve to a real file path
     if isinstance(input_obj, (str, Path)):
         path = Path(input_obj)
@@ -153,8 +356,12 @@ def extract_to_table(input_obj: Union[str, Path, bytes], *, filename: Optional[s
 
     ext = detect_extractor(path)
     if not ext:
-        raise ValueError(f"Unsupported file extension '{path.suffix}'. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
+        raise ValueError(
+            f"Unsupported file extension '{path.suffix}'. "
+            f"Supported: {', '.join(SUPPORTED_EXTENSIONS)}"
+        )
 
-    extractor = REGISTRY[ext]()  # instantiate
+    # Instantiate extractor honoring runtime options where applicable
+    extractor = _make_extractor_for_ext(ext)
     rows = extractor.extract(path)
     return _rows_to_df(rows)

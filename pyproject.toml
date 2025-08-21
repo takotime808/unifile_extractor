@@ -24,16 +24,26 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+archive = ["py7zr>=0.21.0"]   # if 7z is added later
+lang = ["langid>=1.1.6"]      # or fasttext, cld3, ...
+media = [
+    # Use ONE Whisper package that provides `import whisper`:
+    "openai-whisper>=20231117",
+    # Prefer faster-whisper when available; it still imports as a different API...
+    "faster-whisper>=1.0.0; platform_system != 'Windows'",
+    # We shell out to ffmpeg; python bindings are optional but handy:
+    "ffmpeg-python>=0.2.0",
+]
 dev = [
     "pyarrow>=16.0.0",
-    "fastparquet>=2024.2.0",
+    "fastparquet>=2024.2.0"
 ]
 test = [
     "requests>=2.32.0",
     "pytest",
     "pytest-cov",
     "pytest-sugar",
-    # "pytest-xdist",
+    "pytest-xdist",
 ]
 docs = [
     "docutils==0.20.1",
@@ -53,4 +63,4 @@ unifile = "cli_unifile.cli:main"
 unifile-extract = "cli_unifile.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src", "cli_unifile"]
+where = ["src"]

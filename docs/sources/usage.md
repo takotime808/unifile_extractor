@@ -16,3 +16,5 @@ Extract from a URL and save to Parquet:
 ```bash
 unifile extract "https://www.fastradius.com/wp-content/uploads/2022/02/sample-engineering-drawing.pdf" --out drawing.parquet
 ```
+
+To use audio and/or video files, see [media examples](media.html).
