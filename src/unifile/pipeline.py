@@ -34,7 +34,7 @@ The pipeline can accept the same flags the CLI exposes:
 - ASR / Media (optional, if media extractors installed)
   * ``asr_model`` (str): ASR model name (e.g., "small")
   * ``asr_device`` (str): "cpu" or "cuda"
-  * ``asr_compute_type`` (str): faster-whisper compute type (e.g., "float16", "int8_float16")
+  * ``asr_compute_type`` (str): faster-whisper compute type (e.g., "float16")
 
 These are set via ``extract_to_table(..., ocr_lang=..., no_ocr=..., asr_* = ...)``
 and also exported to environment variables so optional media extractors can pick
@@ -126,19 +126,6 @@ def set_runtime_options(
 ) -> None:
     """
     Update in-process runtime options (mirrors CLI flags) and export to env.
-
-    Parameters
-    ----------
-    ocr_lang : str | None
-        OCR language code (images and PDF OCR fallback).
-    no_ocr : bool | None
-        If True, disable PDF OCR fallback.
-    asr_model : str | None
-        Optional ASR model name (for audio/video extractors).
-    asr_device : str | None
-        Optional ASR device ("cpu" or "cuda").
-    asr_compute_type : str | None
-        Optional faster-whisper compute type, e.g., "float16", "int8_float16".
     """
     if ocr_lang is not None:
         _RUNTIME["ocr_lang"] = ocr_lang
@@ -157,23 +144,7 @@ def set_runtime_options(
 
 # ----------------------------- Registry & factories -----------------------------
 
-# Helper to create an extractor instance honoring runtime options where applicable
-def _make_extractor_for_ext(ext: str):
-    ext = ext.lower()
-    if ext == "pdf":
-        # Respect runtime OCR flags for PDF
-        return PdfExtractor(
-            ocr_if_empty=not _RUNTIME["disable_pdf_ocr"],
-            ocr_lang=_RUNTIME["ocr_lang"] or "eng",
-        )
-    if ext in {"png", "jpg", "jpeg", "bmp", "tif", "tiff", "webp", "gif"}:
-        # Pass OCR language to image OCR extractor
-        return ImageExtractor(ocr_lang=_RUNTIME["ocr_lang"] or "eng")
-
-    # Everything else uses default construction (stateless)
-    return REGISTRY_BASE[ext]()
-
-# Base registry (pure constructors) that we can still reuse
+# Base registry (pure constructors)
 REGISTRY_BASE = {
     "pdf": lambda: PdfExtractor(),
     "docx": lambda: DocxExtractor(),
@@ -239,10 +210,9 @@ if INCLUDE_FILE_TYPES_MEDIA:
         "mp4":  lambda: VideoExtractor(),
         "mov":  lambda: VideoExtractor(),
         "mkv":  lambda: VideoExtractor(),
-        # "webm" could be video too; choose one mapping per your preference.
     })
 
-# Public registry reference (keys = supported extensions)
+# Public registry (users/tests may monkeypatch this!)
 REGISTRY = REGISTRY_BASE.copy()
 SUPPORTED_EXTENSIONS = sorted(REGISTRY.keys())
 
@@ -252,16 +222,6 @@ SUPPORTED_EXTENSIONS = sorted(REGISTRY.keys())
 def detect_extractor(path: Union[str, Path]) -> Optional[str]:
     """
     Determine the extractor to use from a path-like object's extension.
-
-    Parameters
-    ----------
-    path
-        Any string or :class:`pathlib.Path`. Existence on disk is **not** required.
-
-    Returns
-    -------
-    str | None
-        The normalized extension (e.g., ``"pdf"``) when supported; otherwise ``None``.
     """
     ext = norm_ext(path)
     return ext if ext in REGISTRY else None
@@ -269,21 +229,7 @@ def detect_extractor(path: Union[str, Path]) -> Optional[str]:
 
 def _rows_to_df(rows: List[Row]) -> pd.DataFrame:
     """
-    Convert a list of :class:`Row` to the standardized pandas DataFrame.
-
-    Any missing columns are added and ordered in the canonical schema.
-
-    Parameters
-    ----------
-    rows
-        A list of :class:`Row` instances (or row-like objects with ``to_dict()``).
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with columns in this exact order:
-        ``["source_path", "source_name", "file_type", "unit_type", "unit_id",
-        "content", "char_count", "metadata", "status", "error"]``.
+    Convert a list of Row to the standardized pandas DataFrame.
     """
     data = [r.to_dict() for r in rows]
     cols = [
@@ -295,6 +241,27 @@ def _rows_to_df(rows: List[Row]) -> pd.DataFrame:
         if c not in df.columns:
             df[c] = None
     return df[cols]
+
+
+def _apply_runtime_to_instance(extractor) -> None:
+    """
+    Best-effort: mutate known extractor attributes after construction so tests
+    can monkeypatch REGISTRY and still have runtime options honored.
+    """
+    # Image OCR language
+    if isinstance(extractor, ImageExtractor):
+        try:
+            extractor.ocr_lang = _RUNTIME["ocr_lang"] or extractor.ocr_lang
+        except Exception:
+            pass
+    # PDF OCR flags
+    if isinstance(extractor, PdfExtractor):
+        try:
+            extractor.ocr_lang = _RUNTIME["ocr_lang"] or extractor.ocr_lang
+            extractor.ocr_if_empty = not _RUNTIME["disable_pdf_ocr"]
+        except Exception:
+            pass
+    # Other extractors can read env vars already exported in set_runtime_options()
 
 
 def extract_to_table(
@@ -310,30 +277,6 @@ def extract_to_table(
 ) -> pd.DataFrame:
     """
     Extract text from a supported file and return a standardized pandas DataFrame.
-
-    Parameters
-    ----------
-    input_obj : str | Path | bytes
-        Path to a file on disk, or a bytes object representing file contents.
-    filename : str | None
-        Required if ``input_obj`` is bytes. Used to determine file type by extension.
-
-    ocr_lang : str | None
-        OCR language (images and PDF OCR fallback). Mirrors ``--ocr-lang``.
-    no_ocr : bool | None
-        Disable PDF OCR fallback. Mirrors ``--no-ocr``.
-    asr_model : str | None
-        ASR model name (media extras). Mirrors ``--asr-model``.
-    asr_device : str | None
-        ASR device ("cpu" or "cuda"). Mirrors ``--asr-device``.
-    asr_compute_type : str | None
-        faster-whisper compute type. Mirrors ``--asr-compute-type``.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Standardized table with columns:
-        [source_path, source_name, file_type, unit_type, unit_id, content, char_count, metadata, status, error].
     """
     # Update runtime config (and environment) from provided options
     set_runtime_options(
@@ -361,7 +304,12 @@ def extract_to_table(
             f"Supported: {', '.join(SUPPORTED_EXTENSIONS)}"
         )
 
-    # Instantiate extractor honoring runtime options where applicable
-    extractor = _make_extractor_for_ext(ext)
+    # Instantiate from the current REGISTRY (tests may monkeypatch this)
+    factory = REGISTRY[ext]
+    extractor = factory()
+
+    # Apply runtime options post-construction (keeps stubs working)
+    _apply_runtime_to_instance(extractor)
+
     rows = extractor.extract(path)
     return _rows_to_df(rows)
