@@ -57,25 +57,25 @@ jobs:
 
       # ---- Prepare docs output and badge ----
       - name: Prepare docs build directory
-        run: mkdir -p docs/_build/html/_assets
+        run: mkdir -p docs/sources/_build/html/_assets
 
       - name: Generate coverage.svg badge
-        run: genbadge coverage -i coverage.xml -o docs/_build/html/_assets/coverage.svg
+        run: genbadge coverage -i coverage.xml -o docs/sources/_build/html/_assets/coverage.svg
 
       # ---- Build Sphinx docs ----
       - name: Build Sphinx HTML
-        run: sphinx-build -b html docs docs/_build/html
+        run: sphinx-build -b html docs docs/sources/_build/html
 
       - name: Upload docs artifact (optional)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: site
-          path: docs/_build/html
+          path: docs/sources/_build/html
 
       # ---- Deploy to GitHub Pages ----
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: docs/_build/html
+          publish_dir: docs/sources/_build/html
