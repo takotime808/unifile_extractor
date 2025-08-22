@@ -18,7 +18,7 @@ def test_image_extractor_uses_ocr(tmp_path, monkeypatch):
     _build_image(p)
 
     # Mock pytesseract to avoid depending on tesseract binary in CI
-    def fake_ocr(img, lang="eng"):
+    def fake_ocr(img, lang="eng", config=""):
         return "HELLO MOCK"
     monkeypatch.setattr(mod, "pytesseract", type("X", (), {"image_to_string": staticmethod(fake_ocr)}))
 

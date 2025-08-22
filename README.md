@@ -24,8 +24,12 @@ and extracts text into a **standardized table**.
   - **Images**: PNG, JPG/JPEG, BMP, TIFF, WebP, GIF (OCR via Tesseract)  
   - **Email & Web**: EML, HTML  
   - **Archives / Structured Data** *(optional, `pip install .[archive]`)*: ZIP, TAR, GZ, BZ2, XZ, EPUB, JSON, XML  
-  - **Audio & Video** *(optional, `pip install .[media]`)*: WAV, MP3, M4A, FLAC, OGG, WEBM, AAC, MP4, MOV, MKV  
+  - **Audio & Video** *(optional, `pip install .[media]`)*: WAV, MP3, M4A, FLAC, OGG, WEBM, AAC, MP4, MOV, MKV
     - Audio/video extractors run ffmpeg for decoding and (optionally) ASR with [Whisper](https://github.com/openai/whisper) or [faster-whisper].
+    - Video frames can be sampled and OCR'd with timestamps.
+- **OCR options**:
+  - Deterministic profile (`--deterministic`) fixes seeds and DPI for reproducible tests.
+  - Multilingual routing via `--ocr-langs=eng+spa+deu` (fallback order).
 - **Standardized schema**:
 
 | column        | meaning |
@@ -115,6 +119,16 @@ unifile extract "https://www.fastradius.com/wp-content/uploads/2022/02/sample-en
 Control OCR (disable PDF OCR fallback and set OCR language):
 ```bash
 unifile extract ./scan.pdf --no-ocr --ocr-lang eng
+```
+
+Deterministic multilingual OCR:
+```bash
+unifile extract ./scan.pdf --ocr-langs eng+spa+deu --deterministic
+```
+
+Select Whisper model for audio/video:
+```bash
+unifile extract talk.mp3 --whisper-model small
 ```
 
 Output formats: `.csv`, `.parquet`, `.jsonl`.

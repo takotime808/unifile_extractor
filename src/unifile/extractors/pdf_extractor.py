@@ -5,6 +5,11 @@ from __future__ import annotations
 import os
 import io
 from typing import List
+import random
+try:  # numpy optional
+    import numpy as np  # type: ignore
+except Exception:  # pragma: no cover
+    np = None
 from pathlib import Path
 
 import fitz  # PyMuPDF
@@ -60,7 +65,7 @@ class PdfExtractor(BaseExtractor):
 
     supported_extensions = ["pdf"]
 
-    def __init__(self, ocr_if_empty: bool = True, ocr_lang: str = "eng"):
+    def __init__(self, ocr_if_empty: bool = True, ocr_lang: str = "eng", ocr_langs: str | None = None, deterministic: bool = False):
         """
         Parameters
         ----------
@@ -72,6 +77,8 @@ class PdfExtractor(BaseExtractor):
         """
         self.ocr_if_empty = ocr_if_empty
         self.ocr_lang = ocr_lang
+        self.ocr_langs = ocr_langs
+        self.deterministic = deterministic
 
     def _extract(self, path: Path) -> List[Row]:
         """
@@ -91,10 +98,16 @@ class PdfExtractor(BaseExtractor):
         # Allow CLI / env overrides
         env_disable = os.getenv("UNIFILE_DISABLE_PDF_OCR")
         env_lang = os.getenv("UNIFILE_OCR_LANG")
+        env_langs = os.getenv("UNIFILE_OCR_LANGS")
+        env_det = os.getenv("UNIFILE_DETERMINISTIC")
         if env_disable is not None and env_disable.strip():
             self.ocr_if_empty = False
         if env_lang:
             self.ocr_lang = env_lang
+        if env_langs:
+            self.ocr_langs = env_langs
+        if env_det is not None and env_det.strip():
+            self.deterministic = True
 
         rows: List[Row] = []
 
@@ -110,8 +123,27 @@ class PdfExtractor(BaseExtractor):
                         mat = fitz.Matrix(2.0, 2.0)
                         pix = page.get_pixmap(matrix=mat)
                         img = Image.open(io.BytesIO(pix.tobytes("png")))
-                        text = pytesseract.image_to_string(img, lang=self.ocr_lang) or ""
+                        if self.deterministic:
+                            random.seed(0)
+                            if np is not None:
+                                try:
+                                    np.random.seed(0)
+                                except Exception:
+                                    pass
+                            config = "--dpi 300"
+                        else:
+                            config = ""
+                        text = ""
+                        used_lang = self.ocr_lang
+                        langs = (self.ocr_langs.split("+") if self.ocr_langs else [self.ocr_lang])
+                        for lang in langs:
+                            t = pytesseract.image_to_string(img, lang=lang, config=config) or ""
+                            if t.strip():
+                                text = t
+                                used_lang = lang
+                                break
                         meta["ocr"] = True
+                        meta["lang"] = used_lang
                     except Exception as e:
                         # Emit an error row for this page but continue with others
                         rows.append(

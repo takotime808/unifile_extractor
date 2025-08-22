@@ -7,17 +7,30 @@ import unifile.pipeline as pipeline
 from unifile.extractors.base import make_row
 
 class CapturingPdf:
-    def __init__(self, ocr_if_empty=True, ocr_lang="eng"):
+    def __init__(self, ocr_if_empty=True, ocr_lang="eng", ocr_langs=None, deterministic=False):
         self.ocr_if_empty = ocr_if_empty
         self.ocr_lang = ocr_lang
+        self.ocr_langs = ocr_langs
+        self.deterministic = deterministic
     def extract(self, path: Path):
-        return [make_row(path, "pdf", "page", "0", "PDF", {"ocr_lang": self.ocr_lang, "ocr_if_empty": self.ocr_if_empty})]
+        return [make_row(path, "pdf", "page", "0", "PDF", {
+            "ocr_lang": self.ocr_lang,
+            "ocr_if_empty": self.ocr_if_empty,
+            "ocr_langs": self.ocr_langs,
+            "deterministic": self.deterministic,
+        })]
 
 class CapturingImage:
-    def __init__(self, ocr_lang="eng"):
+    def __init__(self, ocr_lang="eng", ocr_langs=None, deterministic=False):
         self.ocr_lang = ocr_lang
+        self.ocr_langs = ocr_langs
+        self.deterministic = deterministic
     def extract(self, path: Path):
-        return [make_row(path, "png", "image", "0", "IMG", {"ocr_lang": self.ocr_lang})]
+        return [make_row(path, "png", "image", "0", "IMG", {
+            "ocr_lang": self.ocr_lang,
+            "ocr_langs": self.ocr_langs,
+            "deterministic": self.deterministic,
+        })]
 
 def test_pdf_and_image_constructor_receive_runtime_options(tmp_path, monkeypatch):
     # stub classes into pipeline namespace
@@ -33,8 +46,8 @@ def test_pdf_and_image_constructor_receive_runtime_options(tmp_path, monkeypatch
     f_png.write_bytes(b"fakepng")
 
     # provide options to extract_to_table
-    df_pdf = pipeline.extract_to_table(f_pdf, ocr_lang="deu", no_ocr=True)
-    df_img = pipeline.extract_to_table(f_png, ocr_lang="spa")
+    df_pdf = pipeline.extract_to_table(f_pdf, ocr_lang="deu", ocr_langs="deu+eng", no_ocr=True, deterministic=True)
+    df_img = pipeline.extract_to_table(f_png, ocr_lang="spa", ocr_langs="spa+eng", deterministic=True)
 
     r_pdf = df_pdf.iloc[0]
     r_img = df_img.iloc[0]
@@ -42,7 +55,11 @@ def test_pdf_and_image_constructor_receive_runtime_options(tmp_path, monkeypatch
     assert r_pdf["file_type"] == "pdf"
     assert r_pdf["metadata"]["ocr_lang"] == "deu"
     assert r_pdf["metadata"]["ocr_if_empty"] is False  # because no_ocr=True disables
+    assert r_pdf["metadata"]["ocr_langs"] == "deu+eng"
+    assert r_pdf["metadata"]["deterministic"] is True
     assert r_img["metadata"]["ocr_lang"] == "spa"
+    assert r_img["metadata"]["ocr_langs"] == "spa+eng"
+    assert r_img["metadata"]["deterministic"] is True
 
 
 def test_asr_env_vars_set_when_options_passed(tmp_path, monkeypatch):

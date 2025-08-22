@@ -45,7 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
              "Extensions: .csv, .parquet, .jsonl. Defaults to printing to stdout.",
     )
     ep.add_argument("--ocr-lang", default="eng", help="OCR language for images and OCR fallback (default: eng).")
+    ep.add_argument("--ocr-langs", default=None, help="'+' separated languages for OCR routing (e.g., eng+spa+deu).")
     ep.add_argument("--no-ocr", action="store_true", help="Disable OCR fallback for PDFs (vector text only).")
+    ep.add_argument("--deterministic", action="store_true", help="Enable deterministic OCR profile for tests.")
+    ep.add_argument("--whisper-model", default=None, help="ASR model name for audio/video (e.g., small, base).")
     ep.add_argument("--max-rows", type=int, default=None, help="Limit number of rows printed to stdout.")
     ep.add_argument("--max-colwidth", type=int, default=120, help="Max col width when printing to stdout.")
 
@@ -103,15 +106,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                 print(f"error: file not found: {path}", file=sys.stderr)
                 return 2
 
-        # Configure OCR fallback for PDF by temporarily patching the registry factory
-        # NOTE: keep API stable; pipeline controls OCR defaults internally.
-        # Users can toggle PDF OCR fallback with --no-ocr (handled via env var style flag).
-        # To keep it simple, we pass through via environment variable read by extractor.
-        import os
-        os.environ["UNIFILE_OCR_LANG"] = args.ocr_lang
-        os.environ["UNIFILE_DISABLE_PDF_OCR"] = "1" if args.no_ocr else ""
-
-        df = extract_to_table(path)
+        df = extract_to_table(
+            path,
+            ocr_lang=args.ocr_lang,
+            ocr_langs=args.ocr_langs,
+            no_ocr=args.no_ocr,
+            deterministic=args.deterministic,
+            asr_model=args.whisper_model,
+        )
 
         if args.out:
             out = Path(args.out)

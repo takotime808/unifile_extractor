@@ -90,7 +90,9 @@ except Exception:
 # Defaults used unless overridden via extract_to_table kwargs
 _RUNTIME = {
     "ocr_lang": "eng",
+    "ocr_langs": None,  # e.g., "eng+spa+deu"
     "disable_pdf_ocr": False,  # True when CLI --no-ocr is passed
+    "deterministic": False,
     # Optional ASR settings (audio/video)
     "asr_model": None,
     "asr_device": None,
@@ -105,7 +107,12 @@ def _apply_runtime_env():
     """
     # OCR
     os.environ["UNIFILE_OCR_LANG"] = _RUNTIME["ocr_lang"] or "eng"
+    if _RUNTIME["ocr_langs"] is not None:
+        os.environ["UNIFILE_OCR_LANGS"] = str(_RUNTIME["ocr_langs"])
+    else:
+        os.environ.pop("UNIFILE_OCR_LANGS", None)
     os.environ["UNIFILE_DISABLE_PDF_OCR"] = "1" if _RUNTIME["disable_pdf_ocr"] else ""
+    os.environ["UNIFILE_DETERMINISTIC"] = "1" if _RUNTIME["deterministic"] else ""
 
     # ASR (optional)
     if _RUNTIME["asr_model"] is not None:
@@ -119,7 +126,9 @@ def _apply_runtime_env():
 def set_runtime_options(
     *,
     ocr_lang: Optional[str] = None,
+    ocr_langs: Optional[str] = None,
     no_ocr: Optional[bool] = None,
+    deterministic: Optional[bool] = None,
     asr_model: Optional[str] = None,
     asr_device: Optional[str] = None,
     asr_compute_type: Optional[str] = None,
@@ -129,8 +138,12 @@ def set_runtime_options(
     """
     if ocr_lang is not None:
         _RUNTIME["ocr_lang"] = ocr_lang
+    if ocr_langs is not None:
+        _RUNTIME["ocr_langs"] = ocr_langs
     if no_ocr is not None:
         _RUNTIME["disable_pdf_ocr"] = bool(no_ocr)
+    if deterministic is not None:
+        _RUNTIME["deterministic"] = bool(deterministic)
 
     if asr_model is not None:
         _RUNTIME["asr_model"] = asr_model
@@ -252,6 +265,9 @@ def _apply_runtime_to_instance(extractor) -> None:
     if isinstance(extractor, ImageExtractor):
         try:
             extractor.ocr_lang = _RUNTIME["ocr_lang"] or extractor.ocr_lang
+            if _RUNTIME["ocr_langs"] is not None:
+                extractor.ocr_langs = _RUNTIME["ocr_langs"]
+            extractor.deterministic = _RUNTIME["deterministic"]
         except Exception:
             pass
     # PDF OCR flags
@@ -259,6 +275,18 @@ def _apply_runtime_to_instance(extractor) -> None:
         try:
             extractor.ocr_lang = _RUNTIME["ocr_lang"] or extractor.ocr_lang
             extractor.ocr_if_empty = not _RUNTIME["disable_pdf_ocr"]
+            if _RUNTIME["ocr_langs"] is not None:
+                extractor.ocr_langs = _RUNTIME["ocr_langs"]
+            extractor.deterministic = _RUNTIME["deterministic"]
+        except Exception:
+            pass
+    # Video frame OCR options
+    if INCLUDE_FILE_TYPES_MEDIA and isinstance(extractor, VideoExtractor):
+        try:
+            extractor.ocr_lang = _RUNTIME["ocr_lang"] or extractor.ocr_lang
+            if _RUNTIME["ocr_langs"] is not None:
+                extractor.ocr_langs = _RUNTIME["ocr_langs"]
+            extractor.deterministic = _RUNTIME["deterministic"]
         except Exception:
             pass
     # Other extractors can read env vars already exported in set_runtime_options()
@@ -270,7 +298,9 @@ def extract_to_table(
     filename: Optional[str] = None,
     # CLI-aligned runtime options (all optional)
     ocr_lang: Optional[str] = None,
+    ocr_langs: Optional[str] = None,
     no_ocr: Optional[bool] = None,
+    deterministic: Optional[bool] = None,
     asr_model: Optional[str] = None,
     asr_device: Optional[str] = None,
     asr_compute_type: Optional[str] = None,
@@ -281,7 +311,9 @@ def extract_to_table(
     # Update runtime config (and environment) from provided options
     set_runtime_options(
         ocr_lang=ocr_lang,
+        ocr_langs=ocr_langs,
         no_ocr=no_ocr,
+        deterministic=deterministic,
         asr_model=asr_model,
         asr_device=asr_device,
         asr_compute_type=asr_compute_type,
