@@ -238,8 +238,16 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
     if BINARY_URL_EXT.search(url):
         resp = requests.get(url, timeout=float(args.timeout))
         resp.raise_for_status()
-        filename = Path(urllib.parse.urlparse(url).path).name or "download.bin"
-        return extract_to_table(resp.content, filename=filename)
+        fname = Path(urllib.parse.urlparse(args.input).path).name or "download.bin"
+        if not Path(fname).suffix:
+            ctype = (resp.headers.get("Content-Type") or "").split(";")[0].lower()
+            if "html" in ctype:
+                fname = (fname or "index") + ".html"
+            elif "text" in ctype:
+                fname = (fname or "file") + ".txt"
+            else:
+                fname = (fname or "download") + ".bin"
+        return extract_to_table(resp.content, filename=fname)
 
     # 1) Crawling path (legacy)
     if wants_crawl:
