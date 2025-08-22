@@ -39,10 +39,10 @@ jobs:
 
       # If you maintain a requirements-dev.txt, install that here instead of extras.
       - name: Install package with test/dev extras
-        run: pip install -e ".[all]"
+        run: pip install -e ".[test,dev]"
 
       - name: Install pytest and coverage tools
-        run: pip install pytest pytest-xdist pytest-cov coverage-badge
+        run: pip install pytest pytest-xdist pytest-cov coverage-badge httpx
 
       # Run tests (quiet by default; add -vv for debugging)
       - name: Run pytest
