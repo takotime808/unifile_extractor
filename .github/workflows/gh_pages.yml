@@ -30,6 +30,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pandoc
+          sudo apt-get install python3-sphinx
           sudo apt-get install -y --no-install-recommends \
             tesseract-ocr \
             ffmpeg
@@ -39,10 +40,10 @@ jobs:
         run: python -m pip install -U pip
 
       - name: Install project (docs + test extras)
-        run: pip install -e ".[docs,test]"
+        run: pip install -e ".[test,dev,docs]"
 
       - name: Install genbadge
-        run: pip install "genbadge[coverage]"
+        run: pip install "genbadge[coverage]" httpx
 
       # ---- Run tests and produce coverage.xml ----
       - name: Run pytest with coverage

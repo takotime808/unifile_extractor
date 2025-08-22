@@ -1,11 +1,10 @@
 # Copyright (c) 2025 takotime808
 
-from pathlib import Path
+import pytest
 import types
 import json
-import pytest
 
-cli = pytest.importorskip("cli_unifile.cli")
+cli = pytest.importorskip("src.cli_unifile.cli")
 import cli_unifile.cli as mod
 from .utils_build_samples import build_pdf
 
@@ -25,7 +24,7 @@ def test_cli_url_download_and_extract(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "requests", types.SimpleNamespace(get=fake_get))
 
     out = tmp_path / "o.jsonl"
-    rc = cli.main(["extract", "https://example.com/sample.pdf", "--out", str(out)])
+    rc = cli.main(["extract", "https://github.com/takotime808/unifile_extractor/blob/main/docs/sources/_static/data/sample-engineering-drawing.pdf", "--out", str(out)])
     assert rc == 0 and out.exists()
 
     # Parse JSONL first line instead of string-matching whitespace
