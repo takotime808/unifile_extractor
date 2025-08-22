@@ -14,10 +14,32 @@ from unifile.extractors.base import (
 
 
 class XmlExtractor(BaseExtractor):
-    """XML --> visible text (BeautifulSoup+lxml)."""
+    """Extractor for XML files using BeautifulSoup with the lxml-xml parser.
+
+    This extractor reads XML files, parses them with BeautifulSoup,
+    and extracts the visible text content. The root tag name of the
+    document is also included in the extracted metadata.
+    """
     supported_extensions = ["xml"]
 
     def _extract(self, path: Path) -> List[Row]:
+        """Extract text content from an XML file.
+
+        The method reads the XML file, parses it with the ``lxml-xml`` parser,
+        and returns a single row containing all visible text. The row metadata
+        includes the name of the root tag, if present.
+
+        Args:
+            path (Path): Path to the XML file.
+
+        Returns:
+            List[Row]: A list containing one row with:
+                - source type: ``xml``
+                - level: ``file``
+                - section: ``body``
+                - text: Extracted visible text content
+                - metadata: Dictionary with the root tag name under ``"root"``
+        """
         xml = path.read_text(errors="replace")
         soup = BeautifulSoup(xml, "lxml-xml")
         text = soup.get_text("\n")

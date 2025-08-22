@@ -30,7 +30,18 @@ from unifile.extractors.base import (
 
 
 def _probe_media(path: Path) -> Dict[str, Any]:
-    """Return a small info dict using ffprobe if available, else {}."""
+    """Probe audio metadata using ffprobe if available.
+
+    Executes a lightweight `ffprobe` call to gather format and stream
+    information about the audio file. If ffprobe is not installed or
+    fails, an empty dictionary is returned.
+
+    Args:
+        path (Path): Path to the media file.
+
+    Returns:
+        Dict[str, Any]: Parsed JSON output from ffprobe, or an empty dict.
+    """
     try:
         # Minimal, fast probe
         out = subprocess.check_output(
@@ -44,9 +55,17 @@ def _probe_media(path: Path) -> Dict[str, Any]:
 
 
 def _ensure_wav(input_path: Path) -> Path:
-    """
-    Ensure we have a WAV file on disk. If input isn't .wav, convert with ffmpeg.
-    Returns the path to a WAV (may be the original if already .wav).
+    """Ensure the input audio file is available in WAV format.
+
+    If the input file is not already a WAV, attempts to convert it to
+    mono 16kHz PCM WAV using ffmpeg. If ffmpeg is not installed,
+    returns the original path.
+
+    Args:
+        input_path (Path): Path to the audio file.
+
+    Returns:
+        Path: Path to a WAV file (temporary if converted).
     """
     if input_path.suffix.lower() == ".wav":
         return input_path
@@ -108,8 +127,15 @@ class _ASR:
 
     @classmethod
     def transcribe(cls, audio_path: Path) -> Tuple[str, Dict[str, Any]]:
-        """
-        Return (text, meta). Meta includes segments (start,end,text) when available.
+        """Transcribe an audio file to text.
+
+        Args:
+            audio_path (Path): Path to the WAV (or other supported) audio file.
+
+        Returns:
+            Tuple[str, Dict[str, Any]]:
+                - Transcribed text string
+                - Metadata dictionary with segments (start, end, text) when available
         """
         cls._init()
         segments_meta = []
@@ -137,8 +163,7 @@ class _ASR:
 
 
 class AudioExtractor(BaseExtractor):
-    """
-    Audio --> transcript.
+    """Extractor for audio files to text transcripts.
 
     Supported extensions
     --------------------
@@ -152,10 +177,27 @@ class AudioExtractor(BaseExtractor):
     - content:   transcription text
     - metadata:  {"segments":[...], "probe":{...}} (best-effort)
     """
-
     supported_extensions = ["wav", "mp3", "m4a", "flac", "ogg", "webm", "aac"]
 
     def _extract(self, path: Path) -> List[Row]:
+        """Extract a text transcript from an audio file.
+
+        Ensures the file is in WAV format (via ffmpeg if necessary),
+        transcribes it with the preferred ASR backend, and attaches
+        best-effort probe metadata such as duration and codec.
+
+        Args:
+            path (Path): Path to the audio file.
+
+        Returns:
+            List[Row]: A list containing one row with:
+                - source type: file extension (normalized, e.g. "mp3")
+                - level: ``audio``
+                - section: ``"0"``
+                - text: Transcribed text
+                - metadata: Dictionary with ASR segments and probe info
+                - status: ``"ok"``
+        """
         wav = _ensure_wav(path)
         text, meta = _ASR.transcribe(wav)
         if wav != path:

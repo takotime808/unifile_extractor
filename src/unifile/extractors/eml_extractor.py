@@ -15,10 +15,41 @@ from unifile.extractors.base import (
 
 
 class EmlExtractor(BaseExtractor):
-    """EML --> plain text + metadata (headers & simple attachments list)."""
+    """Extractor for EML (email) files.
+
+    This extractor parses raw EML files, extracts headers, message body
+    text, and a simple list of attachments. Multipart messages are
+    supported, with text parts concatenated together. Non-text parts are
+    ignored except for attachment filenames.
+    """
     supported_extensions = ["eml"]
 
     def _extract(self, path: Path) -> List[Row]:
+        """Extract plain text and metadata from an EML file.
+
+        The extractor parses the email using the ``email`` package with the
+        default policy. It collects header fields such as subject, sender,
+        recipients, CC, and date. If the message is multipart, it walks all
+        parts, concatenating text content and recording attachment filenames.
+
+        Args:
+            path (Path): Path to the EML file.
+
+        Returns:
+            List[Row]: A list containing one row with:
+                - source type: ``eml``
+                - level: ``file``
+                - section: ``body``
+                - text: Concatenated plain text body of the email
+                - metadata: Dictionary with:
+                    - ``"subject"``: Subject line
+                    - ``"from"``: Sender address
+                    - ``"to"``: Recipient(s)
+                    - ``"cc"``: CC recipients
+                    - ``"date"``: Date string
+                    - ``"attachments"``: List of attachment filenames
+                - status: ``"ok"``
+        """
         data = path.read_bytes()
         msg = BytesParser(policy=policy.default).parsebytes(data)
 

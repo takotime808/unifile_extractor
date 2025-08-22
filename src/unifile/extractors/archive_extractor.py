@@ -18,10 +18,42 @@ from unifile.pipeline import (
 
 
 class ArchiveExtractor(BaseExtractor):
-    """ZIP/TAR --> recursively extract members and run the pipeline on each."""
+    """Extractor for archive files (ZIP/TAR and variants).
+
+    This extractor unpacks supported archives into a temporary
+    directory, then recursively runs the extraction pipeline on each
+    contained file. Rows emitted from child extractors are enriched with
+    an ``archive_member`` metadata field indicating the relative path of
+    the file within the archive.
+
+    Supported extensions
+    --------------------
+    zip, tar, gz, tgz, bz2, tbz, xz
+    """
     supported_extensions = ["zip", "tar", "gz", "tgz", "bz2", "tbz", "xz"]
 
     def _extract(self, path: Path) -> List[Row]:
+        """Extract and process the contents of an archive.
+
+        The archive is unpacked into a temporary directory using either
+        ``zipfile`` (for `.zip`) or ``tarfile`` (for `.tar` and compressed
+        variants). Each extracted file is then passed to the pipeline
+        (`extract_to_table`) with the appropriate extractor. If supported
+        files are found, their rows are returned with additional metadata
+        indicating their archive path. If no supported files are found,
+        a single placeholder row is emitted.
+
+        Args:
+            path (Path): Path to the archive file.
+
+        Returns:
+            List[Row]: A list of rows aggregated from all extracted files.
+                Each row includes:
+                - source type: Derived from inner file type
+                - level/unit_type/unit_id: As reported by the delegated extractor
+                - text: Content extracted by the delegated extractor
+                - metadata: Original metadata plus ``archive_member`` path
+        """
         out: List[Row] = []
         work = Path(tempfile.mkdtemp(prefix="unifile_unzip_"))
         try:
