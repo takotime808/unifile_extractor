@@ -38,7 +38,7 @@ class TextExtractor(BaseExtractor):
 
     Notes
     -----
-    - If you prefer more accurate encoding detection, wire in `chardet` or
+    - For more accurate encoding detection, wire in `chardet` or
       `charset-normalizer` and decode bytes manually before emitting rows.
     """
 

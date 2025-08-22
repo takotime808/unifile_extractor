@@ -100,7 +100,7 @@ jobs:
       # so no heavy models are pulled and the job stays fast.
       - name: Run pytest (media)
         env:
-          # optional envs if you want deterministic paths in tests
+          # optional envs for deterministic paths in tests
           UNIFILE_ASR_MODEL: small
           UNIFILE_ASR_DEVICE: cpu
         run: |

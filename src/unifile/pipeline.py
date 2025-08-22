@@ -96,6 +96,34 @@ try:
 except Exception:
     INCLUDE_FILE_TYPES_MEDIA = False
 
+from unifile.extractors.html_product_extractor import (
+    extract_html_page, FetchConfig, CrawlConfig
+)
+
+def _extract_from_url(url: str, *, follow=False, max_pages=1, next_selector=None, respect_robots=False, delay=0.0, headers=None):
+    fetch_cfg = FetchConfig(respect_robots=respect_robots, crawl_delay_s=delay, headers=headers)
+    crawl_cfg = CrawlConfig(follow=follow, max_pages=max_pages, next_selector=next_selector)
+    result = extract_html_page(url, fetch_cfg, crawl_cfg)
+
+    rows = []
+    for i, page in enumerate(result["pages"]):
+        rows.append({
+            "source_path": url,
+            "source_name": url,
+            "file_type": "html",
+            "unit_type": "page",
+            "unit_id": str(i),
+            "content": page["content"],
+            "char_count": len(page["content"] or ""),
+            "metadata": {
+                "url": page["url"],
+                "canonical": page["canonical"],
+                **(page["metadata"] or {})
+            },
+            "status": "ok",
+            "error": ""
+        })
+    return rows
 
 # ------------------------- Runtime configuration layer -------------------------
 

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import sys
+import os
 import argparse
 import pandas as pd
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List, Tuple
 
 from unifile import version, SUPPORTED_EXTENSIONS
 from unifile.pipeline import extract_to_table, set_runtime_options
@@ -18,10 +19,57 @@ except Exception:  # pragma: no cover
     requests = None
 
 
-def _download(url: str, out: Path) -> Path:
+# ----------------------------
+# Helpers for URL handling
+# ----------------------------
+
+def _parse_header_flags(header_flags: Optional[List[str]]) -> Dict[str, str]:
+    """
+    Parse repeated --header "Key: Value" flags into a dict.
+    Accepts 'Key: Value' or 'Key=Value' forms. Whitespace around separators is trimmed.
+    """
+    headers: Dict[str, str] = {}
+    if not header_flags:
+        return headers
+    for raw in header_flags:
+        if ":" in raw:
+            k, v = raw.split(":", 1)
+        elif "=" in raw:
+            k, v = raw.split("=", 1)
+        else:
+            # Single token; treat as a header with empty value
+            k, v = raw, ""
+        k = k.strip()
+        v = v.strip()
+        if k:
+            headers[k] = v
+    return headers
+
+
+def _requests_headers(custom_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """
+    Default desktop-ish headers with optional overrides.
+    These are only used for the initial HEAD/GET that the CLI performs
+    when the input is a URL. The actual extractor can (and should) use its
+    own HTTP stack (e.g., httpx) and read the env vars we set below.
+    """
+    base = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    if custom_headers:
+        base.update(custom_headers)
+    return base
+
+
+def _download(url: str, out: Path, headers: Optional[Dict[str, str]] = None) -> Path:
     if requests is None:
         raise RuntimeError("requests is required to download URLs. Please install 'requests'.")
-    resp = requests.get(url, timeout=60)
+    resp = requests.get(url, timeout=60, headers=_requests_headers(headers), allow_redirects=True)
     resp.raise_for_status()
     out.write_bytes(resp.content)
     return out
@@ -40,6 +88,10 @@ def _looks_like_input(token: str) -> bool:
         return ext in set(SUPPORTED_EXTENSIONS)
     return False
 
+
+# ----------------------------
+# Argument parsing
+# ----------------------------
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -72,6 +124,14 @@ def build_parser() -> argparse.ArgumentParser:
     ep.add_argument("--asr-device", default=None, help="ASR device (cpu|cuda)")
     ep.add_argument("--asr-compute-type", default=None, help="faster-whisper compute type (e.g., float16)")
     ep.add_argument("--media-chunk-seconds", type=int, default=None, help="Target seconds per ASR chunk")
+
+    # Web scraping / crawling (HTML improvements)
+    ep.add_argument("--follow", action="store_true", help="Follow pagination/next links when extracting from a URL")
+    ep.add_argument("--max-pages", type=int, default=None, help="Maximum pages to fetch when following pagination")
+    ep.add_argument("--next-selector", default=None, help="CSS selector for the 'next' pagination link (e.g., a[rel='next'])")
+    ep.add_argument("--respect-robots", action="store_true", help="Respect robots.txt when fetching from URLs")
+    ep.add_argument("--delay", type=float, default=None, help="Polite crawl delay in seconds between page fetches")
+    ep.add_argument("--header", action="append", help="Custom request header (repeatable), e.g. --header 'Cookie: foo=bar'")
 
     # Outputs & downstream use
     ep.add_argument("--out", help="Write output to sink inferred from suffix: .csv | .jsonl | .sqlite | .parquet")
@@ -112,7 +172,7 @@ def _preprocess_argv_for_files_first(argv: list[str]) -> list[str]:
     return argv
 
 
-def _guess_name_for_url(src: str) -> str:
+def _guess_name_for_url(src: str, headers: Optional[Dict[str, str]] = None) -> str:
     """
     Derive a filename from URL, falling back to an extension based on Content-Type.
     Guarantees a usable extension for the pipeline (.html default).
@@ -127,7 +187,7 @@ def _guess_name_for_url(src: str) -> str:
         guessed = "downloaded.html"  # sensible default for webpages
         if requests is not None:
             try:
-                head = requests.head(src, timeout=30, allow_redirects=True)
+                head = requests.head(src, timeout=30, allow_redirects=True, headers=_requests_headers(headers))
                 ctype = head.headers.get("content-type", "")
                 ct = ctype.lower()
                 if "pdf" in ct:
@@ -160,6 +220,10 @@ def _guess_name_for_url(src: str) -> str:
     return name
 
 
+# ----------------------------
+# Main
+# ----------------------------
+
 def main(argv: Optional[list[str]] = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     argv = _preprocess_argv_for_files_first(list(argv))
@@ -181,11 +245,32 @@ def main(argv: Optional[list[str]] = None) -> int:
         src = args.src
         tmp_download: Optional[Path] = None
 
+        # Parse custom headers from CLI
+        custom_headers = _parse_header_flags(args.header)
+
+        # Expose URL-related options via environment variables so downstream extractors can read them.
+        # This is forward-compatible with improved HTML/url extractors without changing the CLI again.
+        if args.follow:
+            os.environ["UNIFILE_URL_FOLLOW"] = "1"
+        if args.max_pages is not None:
+            os.environ["UNIFILE_URL_MAX_PAGES"] = str(args.max_pages)
+        if args.next_selector:
+            os.environ["UNIFILE_URL_NEXT_SELECTOR"] = args.next_selector
+        if args.respect_robots:
+            os.environ["UNIFILE_URL_RESPECT_ROBOTS"] = "1"
+        if args.delay is not None:
+            os.environ["UNIFILE_URL_DELAY"] = str(args.delay)
+        if custom_headers:
+            # Serialize headers as simple "Key: Value" lines joined by \n
+            serialized = "\n".join(f"{k}: {v}" for k, v in custom_headers.items())
+            os.environ["UNIFILE_URL_HEADERS"] = serialized
+
         # Detect URL vs file
         if src.startswith(("http://", "https://")):
-            name = _guess_name_for_url(src)
+            # Keep current behavior (download first) so pipeline paths remain unchanged.
+            name = _guess_name_for_url(src, headers=custom_headers)
             tmp_download = Path.cwd() / f"unifile_download_{name}"
-            _download(src, tmp_download)
+            _download(src, tmp_download, headers=custom_headers)
             path = tmp_download
         else:
             path = Path(src)
@@ -194,6 +279,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 return 2
 
         # Set global/runtime options so class-based extractors and media backends read them uniformly
+        # NOTE: We do NOT pass URL-specific flags here to avoid breaking existing signatures.
         set_runtime_options(
             enable_tables=False if args.disable_tables else None,
             enable_block_types=False if args.disable_block_types else None,
