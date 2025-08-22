@@ -34,7 +34,6 @@ def write_df(df: pd.DataFrame, out_path: str, table: str="unifile") -> None:
         con = sqlite3.connect(out_path)
         try:
             df_sql.to_sql(table, con, if_exists="replace", index=False)
-            df.to_sql(table, con, if_exists="replace", index=False)
         finally:
             con.close()
     elif ext == ".parquet":
