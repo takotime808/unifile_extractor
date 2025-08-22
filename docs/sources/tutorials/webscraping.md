@@ -40,7 +40,7 @@ unifile extract https://www.kdedirect.com/collections/uas-multi-rotor-brushless-
 - Sleeps at least **2 seconds** between requests.  
 - Limits to **5 pages max**.
 
-<!-- 
+
 ---
 
 ## 4. Add custom request headers (cookies, user agent, etc.)
@@ -52,20 +52,10 @@ unifile extract https://www.kdedirect.com/collections/uas-multi-rotor-brushless-
 - Sends a custom UA string.  
 - Includes a session cookie to access logged-in pages. 
 
----
-
-## 6. Single-page (no crawl) with longer timeouts
-```bash
-unifile extract "https://www.python.org/" \
-  --timeout 30 --connect-timeout 15 --retries 2 \
-  --out python_org.jsonl
-```
-
--->
 
 ---
 
-## 4. Combine all features (crawl 3 pages on "Books to Scrape")
+## 5. Combine all features (crawl 3 pages on "Books to Scrape")
 ```bash
 unifile extract "https://books.toscrape.com/catalogue/page-1.html" \
   --follow \
@@ -79,6 +69,15 @@ unifile extract "https://books.toscrape.com/catalogue/page-1.html" \
 - Uses `a.next` as the pagination selector.  
 - Polite crawling with 1.5s delay and robots compliance.  
 - Saves standardized table to `results.csv`.
+
+---
+
+## 6. Single-page (no crawl) with longer timeouts
+```bash
+unifile extract "https://www.python.org/" \
+  --timeout 30 --connect-timeout 15 --retries 2 \
+  --out python_org.jsonl
+```
 
 ----
 ----

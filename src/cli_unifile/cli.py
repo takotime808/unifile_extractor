@@ -8,6 +8,7 @@ import json
 import asyncio
 import requests  # NOTE: module-level import for monkeypatch in tests
 import argparse
+import mimetypes
 import urllib.parse
 import pandas as pd
 from html import escape
@@ -234,19 +235,30 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
         or int(args.max_pages or 0) > 1
     )
 
-    # 0) Direct binary URLs (e.g., .pdf) --> use requests so tests can monkeypatch mod.requests
-    if BINARY_URL_EXT.search(url):
-        resp = requests.get(url, timeout=float(args.timeout))
-        resp.raise_for_status()
-        fname = Path(urllib.parse.urlparse(args.input).path).name or "download.bin"
-        if not Path(fname).suffix:
-            ctype = (resp.headers.get("Content-Type") or "").split(";")[0].lower()
+    # Simple file download via requests
+    if headers:
+        resp = requests.get(args.input, timeout=float(args.timeout), headers=headers)
+    else:
+        resp = requests.get(args.input, timeout=float(args.timeout))
+    resp.raise_for_status()
+    fname = Path(urllib.parse.urlparse(args.input).path).name
+    if not Path(fname).suffix:
+        ctype = (resp.headers.get("Content-Type") or "").split(";")[0].lower()
+        ext = mimetypes.guess_extension(ctype) or ""
+        supported = {
+            ".aac", ".bmp", ".csv", ".docx", ".eml", ".flac", ".gif",
+            ".htm", ".html", ".jpeg", ".jpg", ".log", ".m4a", ".md",
+            ".mkv", ".mov", ".mp3", ".mp4", ".ogg", ".pdf", ".png",
+            ".pptx", ".rtf", ".tif", ".tiff", ".tsv", ".txt", ".wav",
+            ".webm", ".webp", ".xls", ".xlsm", ".xlsx", ".xltm",
+            ".xltx",
+        }
+        if ext not in supported:
             if "html" in ctype:
-                fname = (fname or "index") + ".html"
-            elif "text" in ctype:
-                fname = (fname or "file") + ".txt"
+                ext = ".html"
             else:
-                fname = (fname or "download") + ".bin"
+                ext = ".txt"
+        fname = (fname or "download") + ext
         return extract_to_table(resp.content, filename=fname)
 
     # 1) Crawling path (legacy)
@@ -277,16 +289,9 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
         )
         return asyncio.run(web_extract_from_url(url, opts=opts))
 
-    # Simple file download via requests
-    if headers:
-        resp = requests.get(args.input, timeout=float(args.timeout), headers=headers)
-    else:
-        resp = requests.get(args.input, timeout=float(args.timeout))
-    resp.raise_for_status()
-    return extract_to_table(resp.content, filename=Path(args.input).name)
 
-    # 3) Fallback: pipeline (may use legacy page extractor)
-    return extract_to_table(url)
+    return extract_to_table(resp.content, filename=Path(args.input).name)
+    # return extract_to_table(url)
 
 
 # ------------------------- commands -------------------------
