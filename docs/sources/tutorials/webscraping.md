@@ -53,14 +53,13 @@ unifile extract https://www.kdedirect.com/collections/uas-multi-rotor-brushless-
 
 ---
 
-## 5. Combine all features
+## 5. Combine all features (crawl 3 pages on "Books to Scrape")
 ```bash
-unifile extract https://shop.example.com/search?q=shoes \
+unifile extract "https://books.toscrape.com/catalogue/page-1.html" \
   --follow \
-  --max-pages 10 \
-  --next-selector 'a.next' \
-  --respect-robots \
-  --delay 1.5 \
+  --max-pages 3 \
+  --next-selector ".next > a" \
+  --delay 1.0 \
   --header "User-Agent: Mozilla/5.0 (compatible; UnifileBot/1.0)" \
   --out results.csv
 ```
@@ -68,3 +67,12 @@ unifile extract https://shop.example.com/search?q=shoes \
 - Uses `a.next` as the pagination selector.  
 - Polite crawling with 1.5s delay and robots compliance.  
 - Saves standardized table to `results.csv`.
+
+---
+
+## 6. Single-page (no crawl) with longer timeouts
+```bash
+unifile extract "https://www.python.org/" \
+  --timeout 30 --connect-timeout 15 --retries 2 \
+  --out python_org.jsonl
+```
