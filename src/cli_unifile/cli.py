@@ -195,8 +195,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         # Set global/runtime options so class-based extractors and media backends read them uniformly
         set_runtime_options(
-            enable_tables=None if args.disable_tables is False else (not args.disable_tables),
-            enable_block_types=None if args.disable_block_types is False else (not args.disable_block_types),
+            enable_tables=False if args.disable_tables else None,
+            enable_block_types=False if args.disable_block_types else None,
             metadata_mode=args.metadata_mode,
             ocr_lang=args.ocr_lang,
             no_ocr=args.no_ocr,
@@ -210,8 +210,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         # Run extraction (HTML/TXT handled by function-based extractors in pipeline)
         df = extract_to_table(
             path,
-            enable_tables=None if args.disable_tables is False else (not args.disable_tables),
-            enable_block_types=None if args.disable_block_types is False else (not args.disable_block_types),
+            enable_tables=False if args.disable_tables else None,
+            enable_block_types=False if args.disable_block_types else None,
             metadata_mode=args.metadata_mode,
             ocr_lang=args.ocr_lang,
             no_ocr=args.no_ocr,

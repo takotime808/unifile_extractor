@@ -71,7 +71,7 @@ from unifile.extractors.pdf_extractor import PdfExtractor
 from unifile.extractors.docx_extractor import DocxExtractor
 from unifile.extractors.pptx_extractor import PptxExtractor
 from unifile.extractors.img_extractor import ImageExtractor
-# NOTE: we now import our *function-based* extractors for HTML/TEXT:
+# NOTE: function-based extractors for HTML/TEXT:
 from unifile.extractors.html_extractor import extract_html
 from unifile.extractors.text_extractor import extract_textlike
 from unifile.extractors.xlsx_extractor import ExcelExtractor, CsvExtractor
