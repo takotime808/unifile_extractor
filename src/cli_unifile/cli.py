@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
-import os
 import sys
+import argparse
+import pandas as pd
 from pathlib import Path
 from typing import Optional
-
-import pandas as pd
 
 from unifile import version, SUPPORTED_EXTENSIONS
 from unifile.pipeline import extract_to_table, set_runtime_options
@@ -36,7 +34,7 @@ def _looks_like_input(token: str) -> bool:
     p = Path(token)
     if p.exists() and p.is_file():
         return True
-    # Also allow extension-only detection (so new files-first UX works pre-existing)
+    # Allow extension-only detection (enables files-first UX)
     if p.suffix:
         ext = p.suffix.lower().lstrip(".")
         return ext in set(SUPPORTED_EXTENSIONS)
@@ -114,6 +112,54 @@ def _preprocess_argv_for_files_first(argv: list[str]) -> list[str]:
     return argv
 
 
+def _guess_name_for_url(src: str) -> str:
+    """
+    Derive a filename from URL, falling back to an extension based on Content-Type.
+    Guarantees a usable extension for the pipeline (.html default).
+    """
+    from urllib.parse import urlparse
+
+    url_path = Path(urlparse(src).path)
+    name = url_path.name
+
+    # If URL doesn't end with a filename.ext, try to infer via HEAD content-type
+    if not name or "." not in name:
+        guessed = "downloaded.html"  # sensible default for webpages
+        if requests is not None:
+            try:
+                head = requests.head(src, timeout=30, allow_redirects=True)
+                ctype = head.headers.get("content-type", "")
+                ct = ctype.lower()
+                if "pdf" in ct:
+                    guessed = "downloaded.pdf"
+                elif "json" in ct:
+                    guessed = "downloaded.json"
+                elif "text/plain" in ct:
+                    guessed = "downloaded.txt"
+                elif "spreadsheet" in ct or "excel" in ct:
+                    guessed = "downloaded.xlsx"
+                elif "csv" in ct:
+                    guessed = "downloaded.csv"
+                elif "image/" in ct:
+                    # pick common suffix
+                    if "png" in ct:
+                        guessed = "downloaded.png"
+                    elif "jpeg" in ct or "jpg" in ct:
+                        guessed = "downloaded.jpg"
+                    elif "webp" in ct:
+                        guessed = "downloaded.webp"
+                    elif "tiff" in ct:
+                        guessed = "downloaded.tiff"
+                    else:
+                        guessed = "downloaded.img"
+                # else keep .html as default
+            except Exception:
+                pass
+        name = guessed
+
+    return name
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     argv = _preprocess_argv_for_files_first(list(argv))
@@ -137,8 +183,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         # Detect URL vs file
         if src.startswith(("http://", "https://")):
-            from urllib.parse import urlparse
-            name = Path(urlparse(src).path).name or "downloaded.html"
+            name = _guess_name_for_url(src)
             tmp_download = Path.cwd() / f"unifile_download_{name}"
             _download(src, tmp_download)
             path = tmp_download
