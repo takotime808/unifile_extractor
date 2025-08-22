@@ -227,7 +227,12 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
     """
     url = args.input
     headers = _parse_headers(args.header or [])
-    wants_crawl = bool(args.follow or args.max_pages or args.next_selector or args.delay)
+    wants_crawl = bool(
+        args.follow
+        or args.next_selector
+        or args.delay
+        or int(args.max_pages or 0) > 1
+    )
 
     # 0) Direct binary URLs (e.g., .pdf) → use requests so tests can monkeypatch mod.requests
     if BINARY_URL_EXT.search(url):
@@ -252,7 +257,7 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
         )
 
     # 2) Single page (modern)
-    if WEB_EX_AVAILABLE:
+    if WEB_EX_AVAILABLE and args.input.lower().endswith((".html", ".htm")):
         opts = WebFetchOptions(
             render_js=bool(args.render_js),
             respect_robots=bool(args.respect_robots),
@@ -263,6 +268,14 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
             extra_headers=headers or None,
         )
         return asyncio.run(web_extract_from_url(url, opts=opts))
+
+    # Simple file download via requests
+    if headers:
+        resp = requests.get(args.input, timeout=float(args.timeout), headers=headers)
+    else:
+        resp = requests.get(args.input, timeout=float(args.timeout))
+    resp.raise_for_status()
+    return extract_to_table(resp.content, filename=Path(args.input).name)
 
     # 3) Fallback: pipeline (may use legacy page extractor)
     return extract_to_table(url)
@@ -317,6 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # list-types
     p_list = sub.add_parser("list-types", help="List supported file types (one per line).")
+    p_list.add_argument("--one-per-line", action="store_true", help="(default behavior)")
     p_list.set_defaults(func=lambda a: (_list_types(), 0)[1])
 
     # extract

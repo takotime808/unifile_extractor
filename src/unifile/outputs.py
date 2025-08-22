@@ -25,8 +25,15 @@ def write_df(df: pd.DataFrame, out_path: str, table: str="unifile") -> None:
             for _, row in df.iterrows():
                 f.write(json.dumps(_jsonable(row.to_dict()), ensure_ascii=False) + "\n")
     elif ext == ".sqlite":
+        def _to_sqlite(v: Any) -> Any:
+            if isinstance(v, (dict, list)):
+                return json.dumps(_jsonable(v), ensure_ascii=False)
+            return v
+
+        df_sql = df.applymap(_to_sqlite)
         con = sqlite3.connect(out_path)
         try:
+            df_sql.to_sql(table, con, if_exists="replace", index=False)
             df.to_sql(table, con, if_exists="replace", index=False)
         finally:
             con.close()

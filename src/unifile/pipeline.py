@@ -348,8 +348,8 @@ def _rows_to_df(rows: List[Union[Row, Dict[str, Any]]]) -> pd.DataFrame:
     """
     data: List[Dict[str, Any]] = []
     for r in rows:
-        if isinstance(r, Row):
-            data.append(r.to_dict())
+        if isinstance(r, Row) or hasattr(r, "to_dict"):
+            data.append(r.to_dict())  # type: ignore[call-arg]
         else:
             data.append(dict(r))
     cols = [
@@ -513,14 +513,17 @@ def extract_to_table(
             f"Supported: {', '.join(SUPPORTED_EXTENSIONS)}"
         )
 
+    # Use registry if an override is provided (even for text/html types)
+    if ext in REGISTRY:
+        factory = REGISTRY[ext]
+        extractor = factory()
+        _apply_runtime_to_instance(extractor)
+        rows = extractor.extract(path)
+        return _rows_to_df(rows)
+
     # Function-based extractors (HTML/TEXT family)
-    if ext in {"html","htm","txt","md","rtf","log"}:
+    if ext in {"html", "htm", "txt", "md", "rtf", "log"}:
         rows = _run_html_or_text(ext, path)
         return _rows_to_df(rows)
 
-    # Class-based extractors (existing)
-    factory = REGISTRY[ext]
-    extractor = factory()
-    _apply_runtime_to_instance(extractor)
-    rows = extractor.extract(path)
-    return _rows_to_df(rows)
+    raise ValueError(f"No extractor registered for extension: {ext}")
