@@ -234,7 +234,7 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
         or int(args.max_pages or 0) > 1
     )
 
-    # 0) Direct binary URLs (e.g., .pdf) → use requests so tests can monkeypatch mod.requests
+    # 0) Direct binary URLs (e.g., .pdf) --> use requests so tests can monkeypatch mod.requests
     if BINARY_URL_EXT.search(url):
         resp = requests.get(url, timeout=float(args.timeout))
         resp.raise_for_status()
