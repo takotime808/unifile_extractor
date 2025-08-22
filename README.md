@@ -97,6 +97,15 @@ List supported types:
 unifile list-types --one-per-line
 ```
 
+Obtain an HTML file and use the CLI to extract the contents:
+```bash
+# curl a file to use
+curl -L https://www.python.org -o python.html
+
+# Main command
+unifile python.html --out results.jsonl --html-export extracted.html
+```
+
 Extract from a local file and print to stdout:
 ```bash
 unifile extract ./docs/sources/_static/data/sample-engineering-drawing.pdf --max-rows 50 --max-colwidth 120

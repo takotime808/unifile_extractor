@@ -4,13 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unifile"
-version = "0.1.0"
+version = "0.2.0"
 description = "Unified text extraction: ingest PDFs/DOCX/PPTX/Images/Spreadsheets/HTML and emit a standardized table."
 authors = [{name="takotime808"}]
 readme = "README.md"
 requires-python = ">=3.9"
+keywords = ["extraction", "ocr", "asr", "documents", "tables", "rag", "pipeline"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Text Processing",
+  "Topic :: Multimedia :: Video",
+  "Topic :: Multimedia :: Sound/Audio :: Speech"
+]
+
 dependencies = [
-    "pandas>=2.0",
+    "pandas>=1.5",
     "PyMuPDF>=1.24",
     "python-docx>=1.1.0",
     "python-pptx>=0.6.23",
@@ -24,19 +35,29 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-archive = ["py7zr>=0.21.0"]   # if 7z is added later
-lang = ["langid>=1.1.6"]      # or fasttext, cld3, ...
+archive = [
+    # if 7z is added later
+    "py7zr>=0.21.0",
+    "python-magic>=0.4.27",
+    # if you prefer archive stack
+    "libarchive-c>=4.0",
+]
 media = [
     # Use ONE Whisper package that provides `import whisper`:
-    "openai-whisper>=20231117",
+    "openai-whisper>=20231117 ; python_version >= '3.9'",
     # Prefer faster-whisper when available; it still imports as a different API...
     "faster-whisper>=1.0.0; platform_system != 'Windows'",
+    # "faster-whisper>=1.0.0 ; python_version >= '3.9'",
     # We shell out to ffmpeg; python bindings are optional but handy:
     "ffmpeg-python>=0.2.0",
+    "whisper-timestamped>=1.15",
+    # or fasttext, cld3, ...
+    "langid>=1.1.6",
 ]
 dev = [
     "pyarrow>=16.0.0",
-    "fastparquet>=2024.2.0"
+    # "pyarrow>=11 ; platform_machine != 'armv6l'",
+    "fastparquet>=2023.2.0"
 ]
 test = [
     "requests>=2.32.0",
@@ -44,6 +65,9 @@ test = [
     "pytest-cov",
     "pytest-sugar",
     "pytest-xdist",
+    "ruff>=0.5.0",
+    "mypy>=1.8.0",
+    "types-requests"
 ]
 docs = [
     "docutils==0.20.1",
@@ -57,6 +81,10 @@ docs = [
     "sphinx-copybutton",
     "genbadge[coverage]",
 ]
+# Everything
+all = [
+  "unifile[archive,media,dev,test,docs]"
+]
 
 [project.scripts]
 unifile = "cli_unifile.cli:main"
@@ -65,13 +93,31 @@ unifile-extract = "cli_unifile.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+
+# -----------------------------
+# Quality / lint / type-check
+# -----------------------------
 [tool.ruff]
 line-length = 100
-target-version = "py311"
-lint.select = ["E","F","I","UP","B","N","A","C4"]  # core + pyupgrade + bugbear etc.
+target-version = "py310"
+lint.select = ["E","F","I","UP","B","N","A","C4","B","PIE","Q"]  # core + pyupgrade + bugbear etc.
+ignore = ["E203"]  # keep black-style slicing if you use black elsewhere
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.10"
+warn_unused_configs = true
+warn_redundant_casts = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
+no_implicit_optional = true
+pretty = true
 ignore_missing_imports = true
+
+
+# # -----------------------------
+# # Pytest
+# # -----------------------------
+# [tool.pytest.ini_options]
+# addopts = "-q"
+# testpaths = ["tests"]
+# pythonpath = ["src"]

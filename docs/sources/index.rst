@@ -26,6 +26,7 @@ UniFile Extractor
 
    example_notebooks/pdf_extract
    tutorials/cli_usage
+   tutorials/html_extraction
    tutorials/media
 
 .. toctree::
