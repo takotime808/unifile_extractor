@@ -61,8 +61,10 @@ and also exported to environment variables so optional extractors can pick them 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import List, Optional, Union, Any, Dict
+
 import pandas as pd
 
 from unifile.utils.utils import write_temp_file, norm_ext
@@ -96,16 +98,53 @@ try:
 except Exception:
     INCLUDE_FILE_TYPES_MEDIA = False
 
+# Existing HTML product/page crawler (used as fallback for URL mode)
 from unifile.extractors.html_product_extractor import (
     extract_html_page, FetchConfig, CrawlConfig
 )
 
-def _extract_from_url(url: str, *, follow=False, max_pages=1, next_selector=None, respect_robots=False, delay=0.0, headers=None):
-    fetch_cfg = FetchConfig(respect_robots=respect_robots, crawl_delay_s=delay, headers=headers)
-    crawl_cfg = CrawlConfig(follow=follow, max_pages=max_pages, next_selector=next_selector)
+# --- Optional new web extractor (preferred for URLs when available) ------------
+# Imported lazily in extract_to_table, but keep names here for type hints.
+try:
+    from unifile.extractors.web_extractor import extract_from_url as _web_extract_from_url  # type: ignore
+    from unifile.extractors.web_extractor import FetchOptions as _WebFetchOptions  # type: ignore
+    _WEB_EXTRACTOR_AVAILABLE = True
+except Exception:
+    _WEB_EXTRACTOR_AVAILABLE = False
+
+
+# URL detection regex
+_URL_RE = re.compile(r"^https?://", re.I)
+
+
+def _extract_from_url_legacy(
+    url: str,
+    *,
+    follow: bool = False,
+    max_pages: int = 1,
+    next_selector: Optional[str] = None,
+    respect_robots: bool = False,
+    delay: float = 0.0,
+    headers: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Legacy URL extractor using html_product_extractor. Returns a list of row dicts.
+    Kept for backward compatibility and as a fallback when the new web_extractor
+    is not installed.
+    """
+    fetch_cfg = FetchConfig(
+        respect_robots=respect_robots,
+        crawl_delay_s=delay,
+        headers=headers,
+    )
+    crawl_cfg = CrawlConfig(
+        follow=follow,
+        max_pages=max_pages,
+        next_selector=next_selector,
+    )
     result = extract_html_page(url, fetch_cfg, crawl_cfg)
 
-    rows = []
+    rows: List[Dict[str, Any]] = []
     for i, page in enumerate(result["pages"]):
         rows.append({
             "source_path": url,
@@ -124,6 +163,7 @@ def _extract_from_url(url: str, *, follow=False, max_pages=1, next_selector=None
             "error": ""
         })
     return rows
+
 
 # ------------------------- Runtime configuration layer -------------------------
 
@@ -146,7 +186,7 @@ _RUNTIME = {
     "media_chunk_seconds": 30,
 }
 
-def _apply_runtime_env():
+def _apply_runtime_env() -> None:
     """
     Export the current runtime configuration into environment variables so that
     extractors that read env (e.g., PdfExtractor, audio/video ASR backends) see
@@ -401,9 +441,14 @@ def extract_to_table(
     media_chunk_seconds: Optional[int] = None,
 ) -> pd.DataFrame:
     """
-    Extract text from a supported file and return a standardized pandas DataFrame.
-    Works with both class-based extractors (most formats) and the new function-based
-    HTML/TEXT extractors.
+    Extract text from a supported file OR from a URL and return a standardized pandas DataFrame.
+
+    URL mode:
+      - If input_obj is a str matching ^https?://, attempt to use the new async web_extractor.
+      - If web_extractor is not installed, fall back to the legacy html_product_extractor.
+
+    File/bytes mode:
+      - Works with both class-based extractors (most formats) and function-based HTML/TEXT.
     """
     # Update runtime config (and environment) from provided options
     set_runtime_options(
@@ -418,6 +463,38 @@ def extract_to_table(
         asr_compute_type=asr_compute_type,
         media_chunk_seconds=media_chunk_seconds,
     )
+
+    # --- URL mode: handle early and return ---
+    if isinstance(input_obj, str) and _URL_RE.match(input_obj):
+        url = input_obj
+        # Prefer the new async web_extractor if available
+        if _WEB_EXTRACTOR_AVAILABLE:
+            # Lazy import asyncio here to avoid overhead in non-URL paths
+            import asyncio
+            # Conservative defaults; CLI can invoke web_extractor directly with custom opts
+            opts = _WebFetchOptions(
+                render_js=False,          # JS rendering optional; off by default
+                respect_robots=True,      # be polite by default
+                timeout=20.0,
+                connect_timeout=10.0,
+                max_bytes=25 * 1024 * 1024,
+                retries=3,
+            )
+            return asyncio.run(_web_extract_from_url(url, opts=opts))
+        else:
+            # Fallback to legacy page extractor (returns rows -> DataFrame)
+            rows = _extract_from_url_legacy(
+                url,
+                follow=False,
+                max_pages=1,
+                next_selector=None,
+                respect_robots=False,
+                delay=0.0,
+                headers=None,
+            )
+            return _rows_to_df(rows)
+
+    # --- File/bytes mode below ---
 
     # Resolve to a real file path
     if isinstance(input_obj, (str, Path)):

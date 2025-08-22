@@ -2,339 +2,266 @@
 
 from __future__ import annotations
 
+import re
 import sys
-import os
+import json
+import asyncio
 import argparse
 import pandas as pd
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 
-from unifile import version, SUPPORTED_EXTENSIONS
-from unifile.pipeline import extract_to_table, set_runtime_options
-from unifile.outputs import write_df, export_html
+# Library entrypoint (for local files and general routing)
+from unifile.pipeline import extract_to_table
 
+URL_RE = re.compile(r"^https?://", re.I)
+
+# Optional: modern single-page web extractor
 try:
-    import requests
-except Exception:  # pragma: no cover
-    requests = None
+    from unifile.extractors.web_extractor import extract_from_url as web_extract_from_url
+    from unifile.extractors.web_extractor import FetchOptions as WebFetchOptions
+    WEB_EX_AVAILABLE = True
+except Exception:
+    WEB_EX_AVAILABLE = False
+
+# Legacy crawler (multi-page, next-selector)
+def _legacy_crawl_to_df(
+    url: str,
+    *,
+    follow: bool,
+    max_pages: int,
+    next_selector: Optional[str],
+    respect_robots: bool,
+    delay: float,
+    headers: Dict[str, str] | None,
+) -> pd.DataFrame:
+    try:
+        from unifile.extractors.html_product_extractor import (
+            extract_html_page, FetchConfig, CrawlConfig
+        )
+    except Exception as e:
+        raise RuntimeError(
+            "Legacy crawling requires the 'web' extras "
+            "(e.g. `pip install -e .[web]`)."
+        ) from e
+
+    fetch_cfg = FetchConfig(
+        respect_robots=respect_robots,
+        crawl_delay_s=delay,
+        headers=headers,
+    )
+    crawl_cfg = CrawlConfig(
+        follow=follow,
+        max_pages=max_pages,
+        next_selector=next_selector,
+    )
+    result = extract_html_page(url, fetch_cfg, crawl_cfg)
+
+    rows: List[Dict] = []
+    for i, page in enumerate(result["pages"]):
+        content = page.get("content") or ""
+        rows.append({
+            "source_path": url,
+            "source_name": url,
+            "file_type": "html",
+            "unit_type": "page",
+            "unit_id": str(i),
+            "content": content,
+            "char_count": len(content),
+            "metadata": {
+                "url": page.get("url"),
+                "canonical": page.get("canonical"),
+                **(page.get("metadata") or {}),
+            },
+            "status": "ok",
+            "error": "",
+        })
+    cols = [
+        "source_path","source_name","file_type","unit_type","unit_id",
+        "content","char_count","metadata","status","error"
+    ]
+    df = pd.DataFrame(rows)
+    for c in cols:
+        if c not in df.columns:
+            df[c] = None
+    return df[cols]
 
 
-# ----------------------------
-# Helpers for URL handling
-# ----------------------------
+def _infer_out_fmt(path: Path) -> str:
+    s = path.suffix.lower()
+    if s == ".csv":
+        return "csv"
+    if s in (".jsonl", ".ndjson"):
+        return "jsonl"
+    if s in (".parquet", ".pq"):
+        return "parquet"
+    raise ValueError(f"Unsupported output extension: {path.suffix} (use .csv, .jsonl, .parquet)")
 
-def _parse_header_flags(header_flags: Optional[List[str]]) -> Dict[str, str]:
-    """
-    Parse repeated --header "Key: Value" flags into a dict.
-    Accepts 'Key: Value' or 'Key=Value' forms. Whitespace around separators is trimmed.
-    """
+
+def _write_df(df: pd.DataFrame, out_path: Path) -> None:
+    fmt = _infer_out_fmt(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if fmt == "csv":
+        df.to_csv(out_path, index=False)
+    elif fmt == "jsonl":
+        with out_path.open("w", encoding="utf-8") as f:
+            for _, row in df.iterrows():
+                f.write(json.dumps(row.to_dict(), ensure_ascii=False) + "\n")
+    elif fmt == "parquet":
+        try:
+            import pyarrow  # noqa: F401
+        except Exception as e:
+            raise RuntimeError("Writing Parquet requires 'pyarrow' to be installed") from e
+        df.to_parquet(out_path, index=False)
+
+
+def _print_df(df: pd.DataFrame, max_rows: int, max_colwidth: int) -> None:
+    with pd.option_context(
+        "display.max_rows", max_rows,
+        "display.max_colwidth", max_colwidth,
+        "display.width", 0,
+    ):
+        print(df)
+
+
+def _parse_headers(header_list: List[str]) -> Dict[str, str]:
     headers: Dict[str, str] = {}
-    if not header_flags:
-        return headers
-    for raw in header_flags:
-        if ":" in raw:
-            k, v = raw.split(":", 1)
-        elif "=" in raw:
-            k, v = raw.split("=", 1)
-        else:
-            # Single token; treat as a header with empty value
-            k, v = raw, ""
-        k = k.strip()
-        v = v.strip()
-        if k:
-            headers[k] = v
+    for h in header_list or []:
+        if ":" not in h:
+            continue
+        k, v = h.split(":", 1)
+        headers[k.strip()] = v.strip()
     return headers
 
 
-def _requests_headers(custom_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
     """
-    Default desktop-ish headers with optional overrides.
-    These are only used for the initial HEAD/GET that the CLI performs
-    when the input is a URL. The actual extractor can (and should) use its
-    own HTTP stack (e.g., httpx) and read the env vars we set below.
+    Route URL extractions:
+      - If any crawling options are present, use legacy crawler.
+      - Else prefer modern web_extractor (single page); fall back to pipeline.
     """
-    base = {
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-        ),
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-    if custom_headers:
-        base.update(custom_headers)
-    return base
+    headers = _parse_headers(args.header or [])
+    wants_crawl = bool(args.follow or args.max_pages or args.next_selector or args.delay)
+
+    if wants_crawl:
+        return _legacy_crawl_to_df(
+            args.input,
+            follow=bool(args.follow),
+            max_pages=int(args.max_pages or 1),
+            next_selector=args.next_selector,
+            respect_robots=bool(args.respect_robots),
+            delay=float(args.delay or 0.0),
+            headers=headers or None,
+        )
+
+    # Single page
+    if WEB_EX_AVAILABLE:
+        opts = WebFetchOptions(
+            render_js=bool(args.render_js),
+            respect_robots=bool(args.respect_robots),  # default False; enable with --respect-robots
+            timeout=float(args.timeout),
+            connect_timeout=float(args.connect_timeout),
+            max_bytes=int(args.max_bytes),
+            retries=int(args.retries),
+            extra_headers=headers or None,
+        )
+        return asyncio.run(web_extract_from_url(args.input, opts=opts))
+
+    # Fallback: let the pipeline decide (may use legacy path)
+    return extract_to_table(args.input)
 
 
-def _download(url: str, out: Path, headers: Optional[Dict[str, str]] = None) -> Path:
-    if requests is None:
-        raise RuntimeError("requests is required to download URLs. Please install 'requests'.")
-    resp = requests.get(url, timeout=60, headers=_requests_headers(headers), allow_redirects=True)
-    resp.raise_for_status()
-    out.write_bytes(resp.content)
-    return out
+def cmd_extract(args: argparse.Namespace) -> int:
+    # Route by URL vs local path
+    if URL_RE.match(args.input):
+        df = _extract_from_url_cli(args)
+    else:
+        df = extract_to_table(args.input)
+
+    if args.out:
+        _write_df(df, Path(args.out))
+    else:
+        _print_df(df, args.max_rows, args.max_colwidth)
+    return 0
 
 
-def _looks_like_input(token: str) -> bool:
-    """Decide if the first token is a path/URL we should treat as an input."""
-    if token.startswith(("http://", "https://")):
-        return True
-    p = Path(token)
-    if p.exists() and p.is_file():
-        return True
-    # Allow extension-only detection (enables files-first UX)
-    if p.suffix:
-        ext = p.suffix.lower().lstrip(".")
-        return ext in set(SUPPORTED_EXTENSIONS)
-    return False
+def _list_types() -> None:
+    types = [
+        # Documents
+        "pdf", "docx", "pptx", "txt", "md", "rtf", "log", "html", "htm",
+        # Spreadsheets & Tables
+        "xlsx", "xlsm", "xltx", "xltm", "csv", "tsv",
+        # Images
+        "png", "jpg", "jpeg", "bmp", "tiff", "tif", "webp", "gif",
+        # Email & Web
+        "eml",
+        # Optional archives / structured (if extras installed)
+        "zip", "tar", "gz", "bz2", "xz", "epub", "json", "xml",
+        # Optional media (if extras installed)
+        "wav", "mp3", "m4a", "flac", "ogg", "webm", "aac", "mp4", "mov", "mkv",
+    ]
+    for t in types:
+        print(t)
 
-
-# ----------------------------
-# Argument parsing
-# ----------------------------
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="unifile",
-        description="Unified text extraction CLI: ingest docs/images/spreadsheets/HTML/media and emit a standardized table.",
+        description="Extract text into a standardized table from files or URLs.",
+        add_help=True,
     )
-    p.add_argument("--version", action="version", version=f"%(prog)s {version()}")
+    sub = p.add_subparsers(dest="cmd")
 
-    sub = p.add_subparsers(dest="cmd", required=False)
+    # list-types
+    p_list = sub.add_parser("list-types", help="List supported file types (one per line).")
+    p_list.set_defaults(func=lambda a: (_list_types(), 0)[1])
 
     # extract
-    ep = sub.add_parser("extract", help="Extract from a file path or URL into a standardized table.")
+    p_ext = sub.add_parser("extract", help="Extract from a local file path or an http(s) URL.")
+    p_ext.add_argument("input", help="Path to a file, or an http(s) URL.")
 
-    # INPUT
-    ep.add_argument("src", nargs="?", help="Path to a local file OR a URL (http/https).")
+    # Output / display
+    p_ext.add_argument("--out", help="Write to .csv, .jsonl, or .parquet. If omitted, prints to stdout.")
+    p_ext.add_argument("--max-rows", type=int, default=50, help="Max rows to print to stdout (default: 50).")
+    p_ext.add_argument("--max-colwidth", type=int, default=120, help="Max column width when printing (default: 120).")
 
-    # Quality & layout
-    ep.add_argument("--disable-tables", action="store_true", help="Disable table extraction")
-    ep.add_argument("--disable-block-types", action="store_true", help="Disable structural block typing")
-    ep.add_argument("--metadata-mode", choices=["basic", "full"], default=None, help="Metadata richness hint")
+    # Web (single-page)
+    p_ext.add_argument("--render-js", action="store_true", help="Render JS with Playwright (if installed).")
+    p_ext.add_argument("--timeout", type=float, default=20.0, help="Total request timeout seconds (default: 20).")
+    p_ext.add_argument("--connect-timeout", type=float, default=10.0, help="Connect timeout seconds (default: 10).")
+    p_ext.add_argument("--max-bytes", type=int, default=25 * 1024 * 1024, help="Max download size (bytes).")
+    p_ext.add_argument("--retries", type=int, default=3, help="Retry attempts for fetching (default: 3).")
 
-    # OCR / PDF
-    ep.add_argument("--ocr-lang", default=None, help="OCR language for images and PDF OCR fallback (e.g. eng, deu)")
-    ep.add_argument("--no-ocr", action="store_true", help="Disable OCR fallback for PDFs (vector text only)")
+    # Web (crawling / legacy) — matches docs/tutorial flags
+    p_ext.add_argument("--follow", action="store_true", help="Follow pagination links discovered by --next-selector.")
+    p_ext.add_argument("--max-pages", type=int, default=1, help="Max number of pages to follow (default: 1).")
+    p_ext.add_argument("--next-selector", type=str, default=None, help="CSS selector for the 'next page' link.")
+    p_ext.add_argument("--respect-robots", action="store_true", help="Respect robots.txt (off by default).")
+    p_ext.add_argument("--delay", type=float, default=0.0, help="Throttle between requests in seconds.")
+    p_ext.add_argument("--header", action="append", default=[], help='Extra request header, e.g. --header "User-Agent: MyBot/1.0"')
 
-    # ASR / Media
-    ep.add_argument("--asr-backend", choices=["auto", "dummy", "whisper", "faster-whisper", "whispercpp"],
-                    default=None, help="ASR backend (if media extractors are installed)")
-    ep.add_argument("--asr-model", default=None, help="ASR model name (e.g., small, medium)")
-    ep.add_argument("--asr-device", default=None, help="ASR device (cpu|cuda)")
-    ep.add_argument("--asr-compute-type", default=None, help="faster-whisper compute type (e.g., float16)")
-    ep.add_argument("--media-chunk-seconds", type=int, default=None, help="Target seconds per ASR chunk")
-
-    # Web scraping / crawling (HTML improvements)
-    ep.add_argument("--follow", action="store_true", help="Follow pagination/next links when extracting from a URL")
-    ep.add_argument("--max-pages", type=int, default=None, help="Maximum pages to fetch when following pagination")
-    ep.add_argument("--next-selector", default=None, help="CSS selector for the 'next' pagination link (e.g., a[rel='next'])")
-    ep.add_argument("--respect-robots", action="store_true", help="Respect robots.txt when fetching from URLs")
-    ep.add_argument("--delay", type=float, default=None, help="Polite crawl delay in seconds between page fetches")
-    ep.add_argument("--header", action="append", help="Custom request header (repeatable), e.g. --header 'Cookie: foo=bar'")
-
-    # Outputs & downstream use
-    ep.add_argument("--out", help="Write output to sink inferred from suffix: .csv | .jsonl | .sqlite | .parquet")
-    ep.add_argument("--out-table", default="unifile", help="SQLite table name (when --out ends with .sqlite)")
-    ep.add_argument("--html-export", help="Also write a simple HTML rendering of extracted blocks/tables")
-
-    ep.add_argument("--rag-target-chars", type=int, default=None, help="Chunk text for RAG (approx char length)")
-    ep.add_argument("--rag-overlap", type=int, default=100, help="Overlap (chars) between RAG chunks")
-
-    # Preview
-    ep.add_argument("--max-rows", type=int, default=None, help="Limit number of rows printed to stdout.")
-    ep.add_argument("--max-colwidth", type=int, default=120, help="Max col width when printing to stdout.")
-
-    # list types
-    lp = sub.add_parser("list-types", help="List supported file extensions.")
-    lp.add_argument("--one-per-line", action="store_true", help="Print one extension per line.")
+    p_ext.set_defaults(func=cmd_extract)
 
     return p
 
 
-def _print_df(df: pd.DataFrame, max_rows: Optional[int], max_colwidth: int) -> None:
-    with pd.option_context("display.max_rows", max_rows or 20, "display.max_colwidth", max_colwidth):
-        print(df.to_string(index=False))
-
-
-def _preprocess_argv_for_files_first(argv: list[str]) -> list[str]:
-    """
-    If the user ran `unifile <path-or-url> ...`, auto-insert 'extract' so it behaves
-    like the pipeline one-liner UX.
-    """
-    if not argv:
-        return argv
-    first = argv[0]
-    if first in ("extract", "list-types", "--version", "-h", "--help"):
-        return argv
-    if _looks_like_input(first):
-        return ["extract"] + argv
-    return argv
-
-
-def _guess_name_for_url(src: str, headers: Optional[Dict[str, str]] = None) -> str:
-    """
-    Derive a filename from URL, falling back to an extension based on Content-Type.
-    Guarantees a usable extension for the pipeline (.html default).
-    """
-    from urllib.parse import urlparse
-
-    url_path = Path(urlparse(src).path)
-    name = url_path.name
-
-    # If URL doesn't end with a filename.ext, try to infer via HEAD content-type
-    if not name or "." not in name:
-        guessed = "downloaded.html"  # sensible default for webpages
-        if requests is not None:
-            try:
-                head = requests.head(src, timeout=30, allow_redirects=True, headers=_requests_headers(headers))
-                ctype = head.headers.get("content-type", "")
-                ct = ctype.lower()
-                if "pdf" in ct:
-                    guessed = "downloaded.pdf"
-                elif "json" in ct:
-                    guessed = "downloaded.json"
-                elif "text/plain" in ct:
-                    guessed = "downloaded.txt"
-                elif "spreadsheet" in ct or "excel" in ct:
-                    guessed = "downloaded.xlsx"
-                elif "csv" in ct:
-                    guessed = "downloaded.csv"
-                elif "image/" in ct:
-                    # pick common suffix
-                    if "png" in ct:
-                        guessed = "downloaded.png"
-                    elif "jpeg" in ct or "jpg" in ct:
-                        guessed = "downloaded.jpg"
-                    elif "webp" in ct:
-                        guessed = "downloaded.webp"
-                    elif "tiff" in ct:
-                        guessed = "downloaded.tiff"
-                    else:
-                        guessed = "downloaded.img"
-                # else keep .html as default
-            except Exception:
-                pass
-        name = guessed
-
-    return name
-
-
-# ----------------------------
-# Main
-# ----------------------------
-
 def main(argv: Optional[list[str]] = None) -> int:
-    argv = argv if argv is not None else sys.argv[1:]
-    argv = _preprocess_argv_for_files_first(list(argv))
-    args = build_parser().parse_args(argv)
+    # Back-compat: allow `unifile <URL or PATH>` without subcommand.
+    if argv is None:
+        argv = sys.argv[1:]
+    # If first arg isn't a known subcommand, treat as `extract`
+    if argv and argv[0] not in {"extract", "list-types"}:
+        argv = ["extract"] + argv
 
-    if args.cmd == "list-types":
-        if args.one_per_line:
-            for ext in SUPPORTED_EXTENSIONS:
-                print(ext)
-        else:
-            print(", ".join(SUPPORTED_EXTENSIONS))
-        return 0
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-    if args.cmd == "extract":
-        if not args.src:
-            print("error: missing input file or URL", file=sys.stderr)
-            return 2
+    # When no subcommand and no input were provided, show help
+    if not getattr(args, "func", None):
+        parser.print_help()
+        return 2
 
-        src = args.src
-        tmp_download: Optional[Path] = None
-
-        # Parse custom headers from CLI
-        custom_headers = _parse_header_flags(args.header)
-
-        # Expose URL-related options via environment variables so downstream extractors can read them.
-        # This is forward-compatible with improved HTML/url extractors without changing the CLI again.
-        if args.follow:
-            os.environ["UNIFILE_URL_FOLLOW"] = "1"
-        if args.max_pages is not None:
-            os.environ["UNIFILE_URL_MAX_PAGES"] = str(args.max_pages)
-        if args.next_selector:
-            os.environ["UNIFILE_URL_NEXT_SELECTOR"] = args.next_selector
-        if args.respect_robots:
-            os.environ["UNIFILE_URL_RESPECT_ROBOTS"] = "1"
-        if args.delay is not None:
-            os.environ["UNIFILE_URL_DELAY"] = str(args.delay)
-        if custom_headers:
-            # Serialize headers as simple "Key: Value" lines joined by \n
-            serialized = "\n".join(f"{k}: {v}" for k, v in custom_headers.items())
-            os.environ["UNIFILE_URL_HEADERS"] = serialized
-
-        # Detect URL vs file
-        if src.startswith(("http://", "https://")):
-            # Keep current behavior (download first) so pipeline paths remain unchanged.
-            name = _guess_name_for_url(src, headers=custom_headers)
-            tmp_download = Path.cwd() / f"unifile_download_{name}"
-            _download(src, tmp_download, headers=custom_headers)
-            path = tmp_download
-        else:
-            path = Path(src)
-            if not path.exists():
-                print(f"error: file not found: {path}", file=sys.stderr)
-                return 2
-
-        # Set global/runtime options so class-based extractors and media backends read them uniformly
-        # NOTE: We do NOT pass URL-specific flags here to avoid breaking existing signatures.
-        set_runtime_options(
-            enable_tables=False if args.disable_tables else None,
-            enable_block_types=False if args.disable_block_types else None,
-            metadata_mode=args.metadata_mode,
-            ocr_lang=args.ocr_lang,
-            no_ocr=args.no_ocr,
-            asr_backend=args.asr_backend,
-            asr_model=args.asr_model,
-            asr_device=args.asr_device,
-            asr_compute_type=args.asr_compute_type,
-            media_chunk_seconds=args.media_chunk_seconds,
-        )
-
-        # Run extraction (HTML/TXT handled by function-based extractors in pipeline)
-        df = extract_to_table(
-            path,
-            enable_tables=False if args.disable_tables else None,
-            enable_block_types=False if args.disable_block_types else None,
-            metadata_mode=args.metadata_mode,
-            ocr_lang=args.ocr_lang,
-            no_ocr=args.no_ocr,
-            asr_backend=args.asr_backend,
-            asr_model=args.asr_model,
-            asr_device=args.asr_device,
-            asr_compute_type=args.asr_compute_type,
-            media_chunk_seconds=args.media_chunk_seconds,
-        )
-
-        # Optional RAG chunking
-        if args.rag_target_chars:
-            from unifile.outputs import rag_chunk_df  # lazy import to avoid import-time deps
-            df = rag_chunk_df(df, target_chars=args.rag_target_chars, overlap=args.rag_overlap)
-
-        # Optional HTML export
-        if args.html_export:
-            export_html(df, args.html_export, title=f"Unifile Export – {Path(src).name}")
-            print(f"Saved HTML export -> {args.html_export}")
-
-        # Output or pretty-print
-        if args.out:
-            write_df(df, args.out, table=args.out_table)
-            print(f"Saved standardized table -> {args.out}")
-        else:
-            _print_df(df, max_rows=args.max_rows, max_colwidth=args.max_colwidth)
-
-        if tmp_download and tmp_download.exists():
-            try:
-                tmp_download.unlink()
-            except Exception:
-                pass
-
-        return 0
-
-    # Fallback (should not reach)
-    return 1
+    return args.func(args)
 
 
 if __name__ == "__main__":

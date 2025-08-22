@@ -25,6 +25,12 @@ UniFile Extractor
    :caption: Examples
 
    example_notebooks/pdf_extract
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Tutorials
+
+   tutorials/getting_started
    tutorials/cli_usage
    tutorials/media
    tutorials/html_extraction
