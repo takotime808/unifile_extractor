@@ -6,19 +6,21 @@ import re
 import sys
 import json
 import asyncio
+import requests  # NOTE: module-level import for monkeypatch in tests
 import argparse
+import urllib.parse
 import pandas as pd
 from html import escape
 from pathlib import Path
 from typing import Optional, Dict, List
 
-# Library entrypoint (for local files and general routing)
-from unifile.pipeline import extract_to_table
-
-# Library entrypoint (for local files and general routing)
 from unifile.pipeline import extract_to_table
 
 URL_RE = re.compile(r"^https?://", re.I)
+BINARY_URL_EXT = re.compile(
+    r"""\.(pdf|docx|pptx|xlsx|xls|csv|tsv|png|jpe?g|bmp|gif|webp|tiff?)($|\?)""",
+    re.I,
+)
 
 # Optional: modern single-page web extractor
 try:
@@ -218,15 +220,26 @@ def _legacy_crawl_to_df(
 def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
     """
     Route URL extractions:
+      - BINARY: if URL looks like a direct binary (pdf, docx, xlsx, images, etc.),
+        download with requests and pass bytes+filename to pipeline (enables test monkeypatch).
       - If any crawling options are present, use legacy crawler.
       - Else prefer modern web_extractor (single page); fall back to pipeline.
     """
+    url = args.input
     headers = _parse_headers(args.header or [])
     wants_crawl = bool(args.follow or args.max_pages or args.next_selector or args.delay)
 
+    # 0) Direct binary URLs (e.g., .pdf) → use requests so tests can monkeypatch mod.requests
+    if BINARY_URL_EXT.search(url):
+        resp = requests.get(url, timeout=float(args.timeout))
+        resp.raise_for_status()
+        filename = Path(urllib.parse.urlparse(url).path).name or "download.bin"
+        return extract_to_table(resp.content, filename=filename)
+
+    # 1) Crawling path (legacy)
     if wants_crawl:
         return _legacy_crawl_to_df(
-            args.input,
+            url,
             follow=bool(args.follow),
             max_pages=int(args.max_pages or 1),
             next_selector=args.next_selector,
@@ -238,7 +251,7 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
             retries=int(args.retries),
         )
 
-    # Single page
+    # 2) Single page (modern)
     if WEB_EX_AVAILABLE:
         opts = WebFetchOptions(
             render_js=bool(args.render_js),
@@ -249,10 +262,10 @@ def _extract_from_url_cli(args: argparse.Namespace) -> pd.DataFrame:
             retries=int(args.retries),
             extra_headers=headers or None,
         )
-        return asyncio.run(web_extract_from_url(args.input, opts=opts))
+        return asyncio.run(web_extract_from_url(url, opts=opts))
 
-    # Fallback: let the pipeline decide (may use legacy path)
-    return extract_to_table(args.input)
+    # 3) Fallback: pipeline (may use legacy page extractor)
+    return extract_to_table(url)
 
 
 # ------------------------- commands -------------------------
