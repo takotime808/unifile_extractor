@@ -13,3 +13,4 @@ def test_html_extractor_gets_visible_text(simple_html):
     assert r.file_type in {"html", "htm"}
     assert "Header" in r.content
     assert "Hello" in r.content
+    assert "Example (https://example.com)" in r.content

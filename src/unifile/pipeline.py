@@ -28,21 +28,25 @@ CLI-related runtime options
 The pipeline can accept the same flags the CLI exposes:
 
 - OCR / PDF
-  * ``ocr_lang`` (str): language code for OCR (images and PDF OCR fallback)
+  * ``ocr_lang`` (str): legacy single language code for OCR
+  * ``ocr_langs`` (str): ``+``-separated language codes for multilingual OCR
+  * ``deterministic`` (bool): enforce deterministic OCR profile
   * ``no_ocr`` (bool): disable OCR fallback for PDFs (vector text only)
 
 - ASR / Media (optional, if media extractors installed)
-  * ``asr_model`` (str): ASR model name (e.g., "small")
+  * ``whisper_model`` / ``asr_model`` (str): ASR model name (e.g., "small")
   * ``asr_device`` (str): "cpu" or "cuda"
   * ``asr_compute_type`` (str): faster-whisper compute type (e.g., "float16")
 
-These are set via ``extract_to_table(..., ocr_lang=..., no_ocr=..., asr_* = ...)``
+These are set via ``extract_to_table(..., ocr_langs=..., deterministic=..., whisper_model=..., ...)``
 and also exported to environment variables so optional media extractors can pick
 them up consistently:
 
 - UNIFILE_OCR_LANG
+- UNIFILE_OCR_LANGS
+- UNIFILE_DETERMINISTIC
 - UNIFILE_DISABLE_PDF_OCR
-- UNIFILE_ASR_MODEL
+- UNIFILE_WHISPER_MODEL
 - UNIFILE_ASR_DEVICE
 - UNIFILE_ASR_COMPUTE_TYPE
 """
@@ -50,12 +54,15 @@ them up consistently:
 from __future__ import annotations
 
 import os
+import asyncio
+from importlib import metadata
 from pathlib import Path
 from typing import List, Optional, Union
 import pandas as pd
 
 from unifile.utils.utils import write_temp_file, norm_ext
 from unifile.extractors.base import Row
+from unifile.processing.manifest import Manifest
 from unifile.extractors.pdf_extractor import PdfExtractor
 from unifile.extractors.docx_extractor import DocxExtractor
 from unifile.extractors.pptx_extractor import PptxExtractor
@@ -64,6 +71,7 @@ from unifile.extractors.txt_extractor import TextExtractor
 from unifile.extractors.html_extractor import HtmlExtractor
 from unifile.extractors.xlsx_extractor import ExcelExtractor, CsvExtractor
 from unifile.extractors.eml_extractor import EmlExtractor
+from unifile.extractors.msg_extractor import MsgExtractor
 
 # Optional extractors (installed via extras)
 try:
@@ -90,11 +98,14 @@ except Exception:
 # Defaults used unless overridden via extract_to_table kwargs
 _RUNTIME = {
     "ocr_lang": "eng",
+    "ocr_langs": "eng",
+    "deterministic": False,
     "disable_pdf_ocr": False,  # True when CLI --no-ocr is passed
     # Optional ASR settings (audio/video)
     "asr_model": None,
     "asr_device": None,
     "asr_compute_type": None,
+    "table_as_cells": False,
 }
 
 def _apply_runtime_env():
@@ -105,11 +116,13 @@ def _apply_runtime_env():
     """
     # OCR
     os.environ["UNIFILE_OCR_LANG"] = _RUNTIME["ocr_lang"] or "eng"
+    os.environ["UNIFILE_OCR_LANGS"] = _RUNTIME["ocr_langs"] or _RUNTIME["ocr_lang"] or "eng"
+    os.environ["UNIFILE_DETERMINISTIC"] = "1" if _RUNTIME["deterministic"] else ""
     os.environ["UNIFILE_DISABLE_PDF_OCR"] = "1" if _RUNTIME["disable_pdf_ocr"] else ""
 
     # ASR (optional)
     if _RUNTIME["asr_model"] is not None:
-        os.environ["UNIFILE_ASR_MODEL"] = str(_RUNTIME["asr_model"])
+        os.environ["UNIFILE_WHISPER_MODEL"] = str(_RUNTIME["asr_model"])
     if _RUNTIME["asr_device"] is not None:
         os.environ["UNIFILE_ASR_DEVICE"] = str(_RUNTIME["asr_device"])
     if _RUNTIME["asr_compute_type"] is not None:
@@ -119,25 +132,38 @@ def _apply_runtime_env():
 def set_runtime_options(
     *,
     ocr_lang: Optional[str] = None,
+    ocr_langs: Optional[str] = None,
+    deterministic: Optional[bool] = None,
     no_ocr: Optional[bool] = None,
     asr_model: Optional[str] = None,
+    whisper_model: Optional[str] = None,
     asr_device: Optional[str] = None,
     asr_compute_type: Optional[str] = None,
+    table_as_cells: Optional[bool] = None,
 ) -> None:
     """
     Update in-process runtime options (mirrors CLI flags) and export to env.
     """
+    if ocr_langs is not None:
+        _RUNTIME["ocr_langs"] = ocr_langs
     if ocr_lang is not None:
         _RUNTIME["ocr_lang"] = ocr_lang
+        if ocr_langs is None:
+            _RUNTIME["ocr_langs"] = ocr_lang
+    if deterministic is not None:
+        _RUNTIME["deterministic"] = bool(deterministic)
     if no_ocr is not None:
         _RUNTIME["disable_pdf_ocr"] = bool(no_ocr)
 
-    if asr_model is not None:
-        _RUNTIME["asr_model"] = asr_model
+    model = whisper_model if whisper_model is not None else asr_model
+    if model is not None:
+        _RUNTIME["asr_model"] = model
     if asr_device is not None:
         _RUNTIME["asr_device"] = asr_device
     if asr_compute_type is not None:
         _RUNTIME["asr_compute_type"] = asr_compute_type
+    if table_as_cells is not None:
+        _RUNTIME["table_as_cells"] = bool(table_as_cells)
 
     _apply_runtime_env()
 
@@ -176,6 +202,7 @@ REGISTRY_BASE = {
     "htm": lambda: HtmlExtractor(),
     # eml
     "eml":  lambda: EmlExtractor(),
+    "msg":  lambda: MsgExtractor(),
 }
 
 if INCLUDE_FILE_TYPES_COMPRESSED:
@@ -217,6 +244,46 @@ REGISTRY = REGISTRY_BASE.copy()
 SUPPORTED_EXTENSIONS = sorted(REGISTRY.keys())
 
 
+def load_plugins() -> dict:
+    """Discover extractor plugins via entry points.
+
+    Entry points in the ``unifile_extractor.plugins`` group should expose a
+    callable that returns a ``dict`` mapping file extensions to extractor
+    factory callables. Loaded plugins update :data:`REGISTRY`.
+    """
+    loaded = {}
+    try:
+        eps = metadata.entry_points().select(group="unifile_extractor.plugins")
+    except Exception:  # pragma: no cover - legacy API
+        eps = metadata.entry_points().get("unifile_extractor.plugins", [])
+    for ep in eps:
+        try:
+            plugin = ep.load()
+            mapping = plugin()
+            if isinstance(mapping, dict):
+                loaded.update(mapping)
+        except Exception:
+            continue
+    if loaded:
+        REGISTRY.update(loaded)
+        global SUPPORTED_EXTENSIONS
+        SUPPORTED_EXTENSIONS = sorted(REGISTRY.keys())
+    return loaded
+
+
+def list_plugins() -> List[str]:
+    """Return the names of available extractor plugins."""
+    try:
+        eps = metadata.entry_points().select(group="unifile_extractor.plugins")
+    except Exception:  # pragma: no cover
+        eps = metadata.entry_points().get("unifile_extractor.plugins", [])
+    return sorted(ep.name for ep in eps)
+
+
+# Load any plugins at import time
+load_plugins()
+
+
 # --------------------------------- Core API -----------------------------------
 
 def detect_extractor(path: Union[str, Path]) -> Optional[str]:
@@ -251,14 +318,33 @@ def _apply_runtime_to_instance(extractor) -> None:
     # Image OCR language
     if isinstance(extractor, ImageExtractor):
         try:
-            extractor.ocr_lang = _RUNTIME["ocr_lang"] or extractor.ocr_lang
+            extractor.ocr_langs = _RUNTIME["ocr_langs"] or extractor.ocr_langs
+            if hasattr(extractor, "ocr_lang"):
+                extractor.ocr_lang = (_RUNTIME["ocr_langs"] or extractor.ocr_langs).split("+")[0]
+            extractor.deterministic = _RUNTIME["deterministic"]
         except Exception:
             pass
     # PDF OCR flags
     if isinstance(extractor, PdfExtractor):
         try:
-            extractor.ocr_lang = _RUNTIME["ocr_lang"] or extractor.ocr_lang
+            extractor.ocr_langs = _RUNTIME["ocr_langs"] or extractor.ocr_langs
+            if hasattr(extractor, "ocr_lang"):
+                extractor.ocr_lang = (_RUNTIME["ocr_langs"] or extractor.ocr_langs).split("+")[0]
+            extractor.deterministic = _RUNTIME["deterministic"]
             extractor.ocr_if_empty = not _RUNTIME["disable_pdf_ocr"]
+        except Exception:
+            pass
+    if isinstance(extractor, VideoExtractor):
+        try:
+            extractor.ocr_langs = _RUNTIME["ocr_langs"] or extractor.ocr_langs
+            if hasattr(extractor, "ocr_lang"):
+                extractor.ocr_lang = (_RUNTIME["ocr_langs"] or extractor.ocr_langs).split("+")[0]
+            extractor.deterministic = _RUNTIME["deterministic"]
+        except Exception:
+            pass
+    if isinstance(extractor, (ExcelExtractor, CsvExtractor)):
+        try:
+            extractor.as_cells = _RUNTIME["table_as_cells"]
         except Exception:
             pass
     # Other extractors can read env vars already exported in set_runtime_options()
@@ -270,21 +356,34 @@ def extract_to_table(
     filename: Optional[str] = None,
     # CLI-aligned runtime options (all optional)
     ocr_lang: Optional[str] = None,
+    ocr_langs: Optional[str] = None,
+    deterministic: Optional[bool] = None,
     no_ocr: Optional[bool] = None,
     asr_model: Optional[str] = None,
+    whisper_model: Optional[str] = None,
     asr_device: Optional[str] = None,
     asr_compute_type: Optional[str] = None,
+    table_as_cells: Optional[bool] = None,
+    manifest: Optional[Manifest] = None,
 ) -> pd.DataFrame:
     """
     Extract text from a supported file and return a standardized pandas DataFrame.
+
+    If ``manifest`` is provided, a SHA256 hash of ``input_obj`` is recorded
+    with its status (``ok``/``error``/``duplicate``) and previously seen hashes
+    are skipped.
     """
     # Update runtime config (and environment) from provided options
     set_runtime_options(
         ocr_lang=ocr_lang,
+        ocr_langs=ocr_langs,
+        deterministic=deterministic,
         no_ocr=no_ocr,
         asr_model=asr_model,
+        whisper_model=whisper_model,
         asr_device=asr_device,
         asr_compute_type=asr_compute_type,
+        table_as_cells=table_as_cells,
     )
 
     # Resolve to a real file path
@@ -311,5 +410,42 @@ def extract_to_table(
     # Apply runtime options post-construction (keeps stubs working)
     _apply_runtime_to_instance(extractor)
 
+    if manifest is not None:
+        is_dup, _, _ = manifest.check(path)
+        if is_dup:
+            manifest.record(path, "duplicate")
+            return _rows_to_df([])
+
     rows = extractor.extract(path)
+
+    if manifest is not None:
+        status = "ok"
+        if any(r.status != "ok" for r in rows):
+            status = "error"
+        manifest.record(path, status)
+
     return _rows_to_df(rows)
+
+
+async def extract_paths(paths: List[Union[str, Path]], **kwargs) -> List[pd.DataFrame]:
+    """Asynchronously extract multiple paths.
+
+    Parameters
+    ----------
+    paths:
+        Iterable of file paths to extract. Extraction happens concurrently using
+        ``asyncio.to_thread`` since underlying extractors are synchronous.
+    **kwargs:
+        Optional runtime options forwarded to :func:`extract_to_table`.
+
+    Returns
+    -------
+    list[pandas.DataFrame]
+        A list of standardized DataFrames, one per input path.
+    """
+
+    async def _one(p):
+        return await asyncio.to_thread(extract_to_table, p, **kwargs)
+
+    coros = [_one(p) for p in paths]
+    return await asyncio.gather(*coros)

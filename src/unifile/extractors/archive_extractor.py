@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import List
+import os
 import tempfile, shutil, tarfile, zipfile
 
 from unifile.extractors.base import (
@@ -54,6 +55,21 @@ class ArchiveExtractor(BaseExtractor):
                 - text: Content extracted by the delegated extractor
                 - metadata: Original metadata plus ``archive_member`` path
         """
+        depth = int(os.getenv("UNIFILE_ARCHIVE_DEPTH", "0"))
+        max_depth = int(os.getenv("UNIFILE_ARCHIVE_MAX_DEPTH", "3"))
+        if depth >= max_depth:
+            return [
+                make_row(
+                    path,
+                    path.suffix.lstrip(".").lower(),
+                    "file",
+                    "members",
+                    "",
+                    {"warning": "max_depth_exceeded"},
+                    status="error",
+                )
+            ]
+
         out: List[Row] = []
         work = Path(tempfile.mkdtemp(prefix="unifile_unzip_"))
         try:
@@ -72,7 +88,9 @@ class ArchiveExtractor(BaseExtractor):
                 ext = detect_extractor(p)
                 if not ext:
                     continue
+                os.environ["UNIFILE_ARCHIVE_DEPTH"] = str(depth + 1)
                 df = extract_to_table(p)
+                os.environ["UNIFILE_ARCHIVE_DEPTH"] = str(depth)
                 for _, r in df.iterrows():
                     meta = dict(r["metadata"] or {})
                     meta["archive_member"] = str(p.relative_to(work))

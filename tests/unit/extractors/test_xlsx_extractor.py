@@ -37,3 +37,23 @@ def test_csv_extractor_reads_table(tmp_path):
     assert rows and rows[0].unit_type == "table"
     assert "x,y" in rows[0].content.splitlines()[0]
     assert rows[0].metadata.get("rows") == 2
+
+
+def test_csv_extractor_as_cells(tmp_path):
+    p = tmp_path / "cells.csv"
+    _build_csv(p)
+    ext = CsvExtractor(as_cells=True)
+    rows = ext.extract(p)
+    assert len(rows) == 4
+    assert all(r.unit_type == "cell" for r in rows)
+    assert rows[0].metadata["col"] == "x"
+
+
+def test_excel_extractor_as_cells(tmp_path):
+    p = tmp_path / "cells.xlsx"
+    _build_xlsx(p)
+    ext = ExcelExtractor(as_cells=True)
+    rows = ext.extract(p)
+    assert len(rows) == 4
+    assert all(r.unit_type == "cell" for r in rows)
+    assert rows[0].metadata["sheet"] == "Sheet1"

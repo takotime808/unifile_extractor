@@ -6,6 +6,16 @@ from pathlib import Path
 from typing import List
 from PIL import Image
 import pytesseract
+import os
+import random
+
+try:  # pragma: no cover - optional dependency
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+    _HAS_HEIF = True
+except Exception:  # pragma: no cover - graceful degradation
+    _HAS_HEIF = False
 
 from unifile.extractors.base import (
     BaseExtractor,
@@ -27,7 +37,7 @@ class ImageExtractor(BaseExtractor):
 
     Supported extensions
     --------------------
-    png, jpg, jpeg, tif, tiff, bmp, webp, gif
+    png, jpg, jpeg, tif, tiff, bmp, webp, gif, heic, heif
 
     Output Row
     ----------
@@ -38,17 +48,33 @@ class ImageExtractor(BaseExtractor):
     - metadata:  {"width": int, "height": int, "mode": str}
     """
 
-    supported_extensions = ["png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp", "gif"]
+    supported_extensions = [
+        "png",
+        "jpg",
+        "jpeg",
+        "tif",
+        "tiff",
+        "bmp",
+        "webp",
+        "gif",
+    ]
+    if _HAS_HEIF:
+        supported_extensions.extend(["heic", "heif"])
 
-    def __init__(self, ocr_lang: str = "eng"):
-        """
+    def __init__(self, ocr_langs: str = "eng", deterministic: bool = False):
+        """Create a new :class:`ImageExtractor`.
+
         Parameters
         ----------
-        ocr_lang
-            Tesseract language code (e.g., "eng", "deu"). Must be installed in
-            the system Tesseract data path to take effect.
+        ocr_langs:
+            One or more Tesseract language codes joined by ``+`` (e.g.,
+            ``"eng+spa"``). The order acts as a fallback preference.
+        deterministic:
+            When ``True`` a fixed OCR profile is used: DPI, seeds and language
+            order are stabilised for reproducible tests.
         """
-        self.ocr_lang = ocr_lang
+        self.ocr_langs = ocr_langs
+        self.deterministic = deterministic
 
     def _extract(self, path: Path) -> List[Row]:
         """
@@ -65,13 +91,29 @@ class ImageExtractor(BaseExtractor):
         list[Row]
             A single row with OCR text and basic image metadata.
         """
+        env_langs = os.getenv("UNIFILE_OCR_LANGS")
+        if env_langs:
+            self.ocr_langs = env_langs
+        if os.getenv("UNIFILE_DETERMINISTIC"):
+            self.deterministic = True
+
+        if self.deterministic:
+            random.seed(0)
+
+        config = "--dpi 300" if self.deterministic else ""
+
         # Open via context manager to ensure resources are freed.
         with Image.open(str(path)) as img:
             # Normalize palette/alpha images to RGB for better OCR behavior.
             if img.mode in ("P", "RGBA"):
                 img = img.convert("RGB")
 
-            text = pytesseract.image_to_string(img, lang=self.ocr_lang) or ""
+            text = (
+                pytesseract.image_to_string(
+                    img, lang=self.ocr_langs, config=config
+                )
+                or ""
+            )
             meta = {"width": img.width, "height": img.height, "mode": img.mode}
 
         file_type = path.suffix.lstrip(".").lower() or "png"

@@ -70,6 +70,6 @@ def test_asr_env_vars_set_when_options_passed(tmp_path, monkeypatch):
     # Call with ASR options
     pl.extract_to_table(wav, asr_model="small", asr_device="cpu", asr_compute_type="int8_float16")
 
-    assert os.environ.get("UNIFILE_ASR_MODEL") == "small"
+    assert os.environ.get("UNIFILE_WHISPER_MODEL") == "small"
     assert os.environ.get("UNIFILE_ASR_DEVICE") == "cpu"
     assert os.environ.get("UNIFILE_ASR_COMPUTE_TYPE") == "int8_float16"

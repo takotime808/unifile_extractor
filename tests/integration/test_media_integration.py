@@ -28,6 +28,7 @@ def test_video_extractor_end_to_end_with_mocks(tmp_path, monkeypatch):
     dummy_wav = tmp_path / "t.wav"
     dummy_wav.write_bytes(b"RIFF")
     monkeypatch.setattr(ve, "_ffmpeg_audio", lambda p: dummy_wav)
+    monkeypatch.setattr(ve, "_ffmpeg_frames", lambda p, i: [])
     # Mock ASR and probe
     from unifile.extractors.audio_extractor import _ASR
     monkeypatch.setattr(_ASR, "transcribe", staticmethod(lambda p: ("video transcript", {"segments":[{"start":0.0,"end":1.0,"text":"v"}]})))

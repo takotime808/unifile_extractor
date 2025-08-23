@@ -18,9 +18,11 @@ class EmlExtractor(BaseExtractor):
     """Extractor for EML (email) files.
 
     This extractor parses raw EML files, extracts headers, message body
-    text, and a simple list of attachments. Multipart messages are
-    supported, with text parts concatenated together. Non-text parts are
-    ignored except for attachment filenames.
+    text, and exposes attachments as separate sub-rows. Multipart
+    messages are supported, with text parts concatenated together for the
+    body row. Text attachments are returned in their own rows so
+    downstream tooling can inspect attachment content without saving to
+    disk.
     """
     supported_extensions = ["eml"]
 
@@ -59,14 +61,34 @@ class EmlExtractor(BaseExtractor):
         cc = msg.get("Cc", "")
         date = msg.get("Date", "")
 
-        parts_text = []
-        attachments = []
+        parts_text: List[str] = []
+        attachments: List[str] = []
+        attachment_rows: List[Row] = []
+
         if msg.is_multipart():
             for part in msg.walk():
                 cdisp = (part.get("Content-Disposition") or "").lower()
                 ctype = (part.get_content_type() or "").lower()
+                filename = part.get_filename() or "attachment"
                 if cdisp.startswith("attachment"):
-                    attachments.append(part.get_filename() or "attachment")
+                    attachments.append(filename)
+                    text_content = ""
+                    if ctype.startswith("text/"):
+                        try:
+                            text_content = part.get_content()
+                        except Exception:
+                            pass
+                    attachment_rows.append(
+                        make_row(
+                            path,
+                            "eml",
+                            "attachment",
+                            filename,
+                            text_content,
+                            {"filename": filename, "content_type": ctype},
+                            status="ok",
+                        )
+                    )
                 elif ctype.startswith("text/"):
                     try:
                         parts_text.append(part.get_content())
@@ -80,7 +102,14 @@ class EmlExtractor(BaseExtractor):
 
         content = "\n".join(t for t in parts_text if t)
         meta = {
-            "subject": subject, "from": sender, "to": to, "cc": cc, "date": date,
+            "subject": subject,
+            "from": sender,
+            "to": to,
+            "cc": cc,
+            "date": date,
             "attachments": attachments,
         }
-        return [make_row(path, "eml", "file", "body", content, meta, status="ok")]
+
+        rows = [make_row(path, "eml", "file", "body", content, meta, status="ok")]
+        rows.extend(attachment_rows)
+        return rows

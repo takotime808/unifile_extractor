@@ -11,6 +11,7 @@ def _maybe_add_src_to_path():
     here = Path(__file__).resolve()
     # Try common layouts
     candidates = [
+        here.parents[1] / "src",              # repo_root/src when conftest in tests/
         here.parents[2] / "src",              # repo_root/src
         here.parents[3] / "src",              # when tests/ under repo_root/tests/unit
     ]
@@ -27,7 +28,11 @@ def tmpdir(tmp_path):
 @pytest.fixture
 def simple_html(tmp_path):
     p = tmp_path / "sample.html"
-    p.write_text("<html><head><title>T</title></head><body><h1>Header</h1><p>Hello <b>world</b>!</p></body></html>")
+    p.write_text(
+        "<html><head><title>T</title></head><body><h1>Header</h1>"
+        "<p>Hello <b>world</b>! Visit <a href='https://example.com'>Example</a></p>"
+        "</body></html>"
+    )
     return p
 
 @pytest.fixture

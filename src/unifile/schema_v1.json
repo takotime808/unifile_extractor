@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "columns": [
+    {"name": "source", "type": "string"},
+    {"name": "relpath", "type": "string"},
+    {"name": "kind", "type": "string"},
+    {"name": "page", "type": ["integer", "null"]},
+    {"name": "block", "type": ["integer", "string", "null"]},
+    {"name": "bbox", "type": ["array", "null"]},
+    {"name": "text", "type": "string"},
+    {"name": "confidence", "type": ["number", "null"]},
+    {"name": "mime", "type": ["string", "null"]},
+    {"name": "ts", "type": ["string", "null"]},
+    {"name": "extra", "type": ["object", "null"]}
+  ]
+}

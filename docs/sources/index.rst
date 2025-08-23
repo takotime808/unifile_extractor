@@ -27,12 +27,14 @@ UniFile Extractor
    example_notebooks/pdf_extract
    tutorials/cli_usage
    tutorials/media
+   tutorials/recipes
 
 .. toctree::
    :maxdepth: 3
-   :caption: Usage
+   :caption: Reference
 
    api
+   schema
 
 
 Indices and tables

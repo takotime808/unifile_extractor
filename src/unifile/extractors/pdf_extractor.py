@@ -10,6 +10,8 @@ from pathlib import Path
 import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image
+import os
+import random
 
 from unifile.extractors.base import (
     BaseExtractor,
@@ -60,18 +62,23 @@ class PdfExtractor(BaseExtractor):
 
     supported_extensions = ["pdf"]
 
-    def __init__(self, ocr_if_empty: bool = True, ocr_lang: str = "eng"):
-        """
+    def __init__(self, ocr_if_empty: bool = True, ocr_langs: str = "eng", deterministic: bool = False):
+        """Create a new :class:`PdfExtractor`.
+
         Parameters
         ----------
-        ocr_if_empty
+        ocr_if_empty:
             If True, OCR is attempted when a page yields no native text.
-        ocr_lang
-            Tesseract language code (e.g., "eng", "deu"). Must be installed in
-            the system Tesseract data path to take effect.
+        ocr_langs:
+            One or more Tesseract language codes joined by ``+`` (e.g.,
+            ``"eng+spa"``). The order acts as a fallback preference.
+        deterministic:
+            When ``True`` a fixed OCR profile is used: DPI, seeds and language
+            order are stabilised for reproducible tests.
         """
         self.ocr_if_empty = ocr_if_empty
-        self.ocr_lang = ocr_lang
+        self.ocr_langs = ocr_langs
+        self.deterministic = deterministic
 
     def _extract(self, path: Path) -> List[Row]:
         """
@@ -90,11 +97,15 @@ class PdfExtractor(BaseExtractor):
         """
         # Allow CLI / env overrides
         env_disable = os.getenv("UNIFILE_DISABLE_PDF_OCR")
-        env_lang = os.getenv("UNIFILE_OCR_LANG")
+        env_langs = os.getenv("UNIFILE_OCR_LANGS")
         if env_disable is not None and env_disable.strip():
             self.ocr_if_empty = False
-        if env_lang:
-            self.ocr_lang = env_lang
+        if env_langs:
+            self.ocr_langs = env_langs
+        if os.getenv("UNIFILE_DETERMINISTIC"):
+            self.deterministic = True
+        if self.deterministic:
+            random.seed(0)
 
         rows: List[Row] = []
 
@@ -110,7 +121,13 @@ class PdfExtractor(BaseExtractor):
                         mat = fitz.Matrix(2.0, 2.0)
                         pix = page.get_pixmap(matrix=mat)
                         img = Image.open(io.BytesIO(pix.tobytes("png")))
-                        text = pytesseract.image_to_string(img, lang=self.ocr_lang) or ""
+                        config = "--dpi 300" if self.deterministic else ""
+                        text = (
+                            pytesseract.image_to_string(
+                                img, lang=self.ocr_langs, config=config
+                            )
+                            or ""
+                        )
                         meta["ocr"] = True
                     except Exception as e:
                         # Emit an error row for this page but continue with others

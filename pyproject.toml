@@ -21,6 +21,8 @@ dependencies = [
     "lxml>=5.0.0",
     "chardet>=5.2.0",
     "ebooklib", # for epub_extractor.py
+    "readability-lxml>=0.8.1",
+    "pillow-heif>=0.14.0",
 ]
 
 [project.optional-dependencies]
@@ -64,3 +66,6 @@ unifile-extract = "cli_unifile.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+unifile = ["schema_v1.json"]

@@ -21,6 +21,7 @@ from typing import List, Tuple, Dict, Any
 import tempfile
 import subprocess
 import json
+import os
 
 from unifile.extractors.base import (
     BaseExtractor,
@@ -88,8 +89,8 @@ class _ASR:
     Lazy ASR model loader that prefers faster-whisper; falls back to openai-whisper.
 
     Environment overrides:
-        UNIFILE_ASR_MODEL   (default: "small")
-        UNIFILE_ASR_DEVICE  (e.g., "cuda" or "cpu"; backend-dependent)
+        UNIFILE_WHISPER_MODEL   (default: "small")
+        UNIFILE_ASR_DEVICE      (e.g., "cuda" or "cpu"; backend-dependent)
         UNIFILE_ASR_COMPUTE_TYPE (faster-whisper only, e.g., "float16","int8_float16")
     """
     _initialized = False
@@ -102,7 +103,7 @@ class _ASR:
             return
         import os
 
-        model_name = os.getenv("UNIFILE_ASR_MODEL", "small")
+        model_name = os.getenv("UNIFILE_WHISPER_MODEL", os.getenv("UNIFILE_ASR_MODEL", "small"))
         device = os.getenv("UNIFILE_ASR_DEVICE", None)
         compute_type = os.getenv("UNIFILE_ASR_COMPUTE_TYPE", "default")
 
@@ -126,40 +127,59 @@ class _ASR:
         cls._initialized = True
 
     @classmethod
-    def transcribe(cls, audio_path: Path) -> Tuple[str, Dict[str, Any]]:
-        """Transcribe an audio file to text.
+    def transcribe(cls, audio_path: Path, chunk_seconds: float = 30.0) -> Tuple[str, Dict[str, Any]]:
+        """Transcribe an audio file using chunked processing.
 
-        Args:
-            audio_path (Path): Path to the WAV (or other supported) audio file.
-
-        Returns:
-            Tuple[str, Dict[str, Any]]:
-                - Transcribed text string
-                - Metadata dictionary with segments (start, end, text) when available
+        The audio is split into ``chunk_seconds`` pieces with ``ffmpeg``. Each
+        chunk is transcribed sequentially and concatenated.
         """
         cls._init()
-        segments_meta = []
-        if cls._use_fw:
-            # faster-whisper stream of segments
+        segments_meta: List[Dict[str, Any]] = []
+        text_parts: List[str] = []
+
+        tmpdir = Path(tempfile.mkdtemp(prefix="unifile_chunks_"))
+        try:
+            pattern = tmpdir / "chunk_%03d.wav"
             try:
-                segments, info = cls._model.transcribe(str(audio_path))
-            except TypeError:
-                # older API returns generator + info
-                segments_iter, info = cls._model.transcribe(str(audio_path), vad_filter=False)
-                segments = list(segments_iter)
-            text_parts = []
-            for s in segments:
-                text_parts.append(s.text or "")
-                segments_meta.append({"start": float(s.start or 0), "end": float(s.end or 0), "text": s.text or ""})
-            return " ".join(t.strip() for t in text_parts).strip(), {"segments": segments_meta}
-        else:
-            # openai-whisper returns dict with segments
-            import whisper
-            result = cls._model.transcribe(str(audio_path))
-            text = (result.get("text") or "").strip()
-            for s in result.get("segments", []) or []:
-                segments_meta.append({"start": float(s.get("start", 0)), "end": float(s.get("end", 0)), "text": s.get("text", "")})
-            return text, {"segments": segments_meta}
+                subprocess.check_call(
+                    ["ffmpeg", "-y", "-i", str(audio_path), "-f", "segment", "-segment_time", str(chunk_seconds), str(pattern)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                chunks = sorted(tmpdir.glob("chunk_*.wav")) or [audio_path]
+            except Exception:
+                chunks = [audio_path]
+
+            for idx, ch in enumerate(chunks):
+                offset = idx * chunk_seconds
+                if cls._use_fw:
+                    try:
+                        segs, info = cls._model.transcribe(str(ch))
+                    except TypeError:
+                        seg_iter, info = cls._model.transcribe(str(ch), vad_filter=False)
+                        segs = list(seg_iter)
+                    for s in segs:
+                        text_parts.append(s.text or "")
+                        segments_meta.append({"start": float(offset + (s.start or 0)), "end": float(offset + (s.end or 0)), "text": s.text or ""})
+                else:
+                    import whisper
+                    result = cls._model.transcribe(str(ch))
+                    text = (result.get("text") or "").strip()
+                    text_parts.append(text)
+                    for s in result.get("segments", []) or []:
+                        segments_meta.append({"start": float(offset + s.get("start", 0)), "end": float(offset + s.get("end", 0)), "text": s.get("text", "")})
+        finally:
+            for fp in tmpdir.glob("chunk_*.wav"):
+                try:
+                    fp.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            try:
+                tmpdir.rmdir()
+            except Exception:
+                pass
+
+        return " ".join(t.strip() for t in text_parts).strip(), {"segments": segments_meta}
 
 
 class AudioExtractor(BaseExtractor):

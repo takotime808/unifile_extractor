@@ -13,12 +13,11 @@ import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import (
-    List, 
-    Optional, 
-    Protocol, 
+    List,
+    Optional,
+    Protocol,
     Sequence,
-    # Dict,
-    # Iterable,
+    TypedDict,
 )
 
 
@@ -61,7 +60,7 @@ class Row:
     status: str      # "ok" or "error"
     error: Optional[str] = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> "RowDict":
         """
         Convert the Row to a JSON-serializable dictionary.
 
@@ -77,6 +76,21 @@ class Row:
         except Exception:
             d["metadata"] = {"_repr": str(d["metadata"])}
         return d
+
+
+class RowDict(TypedDict):
+    """Typed dictionary matching :class:`Row.to_dict` output."""
+
+    source_path: str
+    source_name: str
+    file_type: str
+    unit_type: str
+    unit_id: str
+    content: str
+    char_count: int
+    metadata: dict
+    status: str
+    error: Optional[str]
 
 def make_row(path: Path, file_type: str, unit_type: str, unit_id: str, content: str, metadata: dict, status: str = "ok", error: Optional[str] = None) -> Row:
     """

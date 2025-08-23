@@ -11,6 +11,7 @@ from pathlib import Path
 # Import the pipeline module under test
 import unifile.pipeline as pipeline
 from unifile.extractors.base import make_row
+from unifile.extractors.xlsx_extractor import CsvExtractor
 
 
 class DummyExtractor:
@@ -125,3 +126,13 @@ def test_extract_to_table_file_not_found_raises(tmp_path):
     missing = tmp_path / "nope.txt"
     with pytest.raises(FileNotFoundError):
         pipeline.extract_to_table(missing)
+
+
+def test_pipeline_table_as_cells(monkeypatch, tmp_path):
+    p = tmp_path / "tab.csv"
+    p.write_text("a,b\n1,2\n")
+    stub_registry = {"csv": lambda: CsvExtractor()}
+    monkeypatch.setattr(pipeline, "REGISTRY", stub_registry)
+    monkeypatch.setattr(pipeline, "SUPPORTED_EXTENSIONS", ["csv"])
+    df = pipeline.extract_to_table(p, table_as_cells=True)
+    assert (df["unit_type"] == "cell").all()
